@@ -182,7 +182,7 @@
     deleteBtn.disabled = !id;
     if (!id) { showEmpty(); return; }
 
-    status.textContent = "Opening PDF…";
+    // status.textContent = "Opening PDF…";
     clearTimeout(saveTimer);
     observer?.disconnect();
     renderObserver?.disconnect();
@@ -218,7 +218,7 @@
       }
       viewer.append(fragment);
       progress.textContent = `Page ${startPage} / ${pdf.numPages}`;
-      status.textContent = `${pdf.numPages} pages`;
+    //   status.textContent = `${pdf.numPages} pages`;
 
       renderObserver = new IntersectionObserver(entries => {
         for (const entry of entries) {
@@ -246,14 +246,14 @@
   fileInput.addEventListener("change", async () => {
     const file = fileInput.files[0];
     if (!file) return;
-    status.textContent = "Uploading…";
+    // status.textContent = "Uploading…";
     const body = new FormData();
     body.append("file", file);
     try {
       const result = await api("/api/documents", { method: "POST", body });
       fileInput.value = "";
       await refreshLibrary(result.id);
-      status.textContent = "Uploaded";
+    //   status.textContent = "Uploaded";
     } catch (err) {
     //   status.textContent = err.message;
       console.log(err.message)
@@ -267,7 +267,7 @@
       activeId = null;
       pdf = null;
       await refreshLibrary();
-      status.textContent = "Deleted";
+    //   status.textContent = "Deleted";
     } catch (err) {
     //   status.textContent = err.message;
     console.log(err.message)
