@@ -84,29 +84,34 @@
     return data;
   }
 
-  async function refreshLibrary(selectId = null) {
-    const docs = await api("/api/documents");
-    library.innerHTML = '<option value="">Your library</option>';
-    for (const doc of docs) {
-      const option = document.createElement("option");
-      option.value = doc.id;
-      option.textContent = doc.filename;
-      option.dataset.page = doc.last_page;
-      library.append(option);
-    }
-    const target = selectId || activeId;
-    if (target && docs.some(d => d.id === target)) {
-      library.value = target;
-      await openDocument(target);
-    } else if (docs.length) {
-      library.value = docs[0].id;
-      await openDocument(docs[0].id);
-    } else if (!docs.length) {
-      activeId = null;
-      deleteBtn.disabled = true;
-      showEmpty();
-    }
+async function refreshLibrary(selectId = null) {
+  const docs = await api("/api/documents");
+
+  library.innerHTML = '<option value="">Your library</option>';
+
+  for (const doc of docs) {
+    const option = document.createElement("option");
+    option.value = doc.id;
+    option.textContent = doc.filename;
+    option.dataset.page = doc.last_page || 1;
+    library.append(option);
   }
+
+  const target = selectId || activeId;
+
+  if (target && docs.some(d => d.id === target)) {
+    library.value = target;
+    await openDocument(target);
+  } else if (docs.length) {
+    library.value = docs[0].id;
+    await openDocument(docs[0].id);
+  } else {
+    activeId = null;
+    pdf = null;
+    deleteBtn.disabled = true;
+    showEmpty();
+  }
+}
 
   function showEmpty() {
     viewer.replaceChildren(empty);
@@ -193,7 +198,12 @@
 
     try {
       const selected = library.selectedOptions[0];
-      const startPage = Math.max(1, Number(selected?.dataset.page || 1));
+      const savedPage = Number(selected?.dataset.page);
+
+        const startPage = Math.min(
+        pdf?.numPages || Infinity,
+        Math.max(1, savedPage || 1)
+        );
       pdf = await pdfjsLib.getDocument(`/api/documents/${id}/file`).promise;
       if (token !== renderToken) return;
 
@@ -234,7 +244,6 @@
       visiblePage = startPage;
       document.querySelector(`#page-${startPage}`)?.scrollIntoView({ block: "start" });
       renderPage(startPage, token);
-      saveProgress(startPage);
     } catch (err) {
     //   status.textContent = `Couldn't open PDF: ${err.message}`;
       console.log(err.message)
@@ -274,12 +283,12 @@
     }
   });
 
-  let resizeTimer;
-  window.addEventListener("resize", () => {
-    if (!pdf || !activeId) return;
-    clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(() => openDocument(activeId), 250);
-  });
+//   let resizeTimer;
+//   window.addEventListener("resize", () => {
+//     if (!pdf || !activeId) return;
+//     clearTimeout(resizeTimer);
+//     resizeTimer = setTimeout(() => openDocument(activeId), 250);
+//   });
 
   refreshLibrary().catch(err => console.log(err.message));
 </script>
