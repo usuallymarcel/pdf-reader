@@ -10,6 +10,15 @@ services:
       MAX_UPLOAD_MB: "500"
     volumes:
       - pdf_reader_data:/data
+    labels:
+      - "traefik.enable=true"
+
+      - "traefik.http.routers.users-api.rule=Host(`reader.marcel.co.nz`)"
+      - "traefik.http.routers.users-api.entrypoints=websecure"
+      - "traefik.http.routers.users-api.tls=true"
+      - "traefik.http.routers.users-api.tls.certresolver=myresolver"
+
+      - "traefik.http.services.users-api.loadbalancer.server.port=8000"
 
 volumes:
   pdf_reader_data:
