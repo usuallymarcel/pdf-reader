@@ -1,3 +1,4 @@
+
 services:
   pdf-reader:
     build: .
@@ -13,12 +14,19 @@ services:
     labels:
       - "traefik.enable=true"
 
-      - "traefik.http.routers.users-api.rule=Host(`reader.marcel.co.nz`)"
-      - "traefik.http.routers.users-api.entrypoints=websecure"
-      - "traefik.http.routers.users-api.tls=true"
-      - "traefik.http.routers.users-api.tls.certresolver=myresolver"
+      - "traefik.http.routers.pdf-reader.rule=Host(`reader.marcel.co.nz`)"
+      - "traefik.http.routers.pdf-reader.entrypoints=websecure"
+      - "traefik.http.routers.pdf-reader.tls=true"
+      - "traefik.http.routers.pdf-reader.tls.certresolver=myresolver"
 
-      - "traefik.http.services.users-api.loadbalancer.server.port=8000"
+      - "traefik.http.services.pdf-reader.loadbalancer.server.port=8000"
+
+    networks:
+      - proxy
 
 volumes:
   pdf_reader_data:
+
+networks:
+  proxy:
+    external: true
