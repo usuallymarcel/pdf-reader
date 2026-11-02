@@ -1,0 +1,15 @@
+services:
+  pdf-reader:
+    build: .
+    container_name: pdf-reader
+    restart: unless-stopped
+    ports:
+      - "8080:8000"
+    environment:
+      DATA_DIR: /data
+      MAX_UPLOAD_MB: "500"
+    volumes:
+      - pdf_reader_data:/data
+
+volumes:
+  pdf_reader_data:

@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PDF Reader</title>
+  <style>
+    :root { color-scheme: dark; --bg:#111315; --panel:#1b1f22; --muted:#9ca3aa; --line:#30363b; --accent:#8ab4f8; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--bg); color:#eee; font:15px/1.45 system-ui,sans-serif; }
+    header { position:sticky; top:0; z-index:5; display:flex; align-items:center; gap:12px; flex-wrap:wrap; padding:10px 14px; background:#181b1eF2; border-bottom:1px solid var(--line); backdrop-filter:blur(12px); }
+    .brand { font-weight:700; white-space:nowrap; }
+    select, button, .upload-label { color:#eee; background:var(--panel); border:1px solid var(--line); border-radius:7px; padding:8px 10px; font:inherit; }
+    select { min-width:180px; max-width:min(45vw,360px); }
+    button, .upload-label { cursor:pointer; }
+    button:hover, .upload-label:hover { border-color:var(--accent); }
+    button:disabled { opacity:.45; cursor:default; }
+    #status { color:var(--muted); font-size:13px; margin-left:auto; }
+    #fileInput { display:none; }
+    #viewer { width:100%; max-width:1100px; margin:0 auto; padding:14px 0 60px; }
+    .page { margin:0 auto 14px; width:100%; display:flex; justify-content:center; }
+    .page canvas { display:block; width:100%; height:auto; background:white; box-shadow:0 2px 14px #0008; }
+    #empty { max-width:560px; margin:12vh auto; padding:24px; text-align:center; color:var(--muted); }
+    #empty h1 { color:#eee; font-size:22px; }
+    #empty p { margin-bottom:20px; }
+    #progress { color:var(--muted); white-space:nowrap; }
+    @media (max-width:600px) {
+      header { gap:8px; padding:8px; }
+      .brand { width:100%; }
+      select { flex:1; min-width:0; max-width:none; }
+      #status { width:100%; margin:0; }
+      #viewer { padding-top:8px; }
+      .page { margin-bottom:8px; }
+    }
+  </style>
+</head>
+<body>
+<header>
+  <div class="brand">PDF Reader</div>
+  <select id="library" aria-label="Choose a book"><option value="">Your library</option></select>
+  <label class="upload-label" for="fileInput">＋ Upload PDF</label>
+  <input id="fileInput" type="file" accept="application/pdf,.pdf">
+  <button id="deleteBtn" disabled>Delete</button>
+  <span id="progress"></span>
+  <span id="status">Ready</span>
+</header>
+
+<main id="viewer">
+  <section id="empty">
+    <h1>Your reading shelf</h1>
+    <p>Upload a PDF to start reading. Your place is saved automatically and will be restored when you open it again.</p>
+    <label class="upload-label" for="fileInput">Upload a PDF</label>
+  </section>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.min.mjs" type="module"></script>
+<script type="module">
+  import * as pdfjsLib from "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.min.mjs";
+  pdfjsLib.GlobalWorkerOptions.workerSrc =
+    "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.worker.min.mjs";
+
+  const library = document.querySelector("#library");
+  const fileInput = document.querySelector("#fileInput");
+  const viewer = document.querySelector("#viewer");
+  const empty = document.querySelector("#empty");
+  const status = document.querySelector("#status");
+  const progress = document.querySelector("#progress");
+  const deleteBtn = document.querySelector("#deleteBtn");
+
+  let activeId = null;
+  let pdf = null;
+  let observer = null;
+  let renderObserver = null;
+  let saveTimer = null;
+  let visiblePage = 1;
+  let pageElements = new Map();
+  let renderToken = 0;
+
+  async function api(url, options = {}) {
+    const response = await fetch(url, options);
+    const data = response.headers.get("content-type")?.includes("application/json")
+      ? await response.json() : null;
+    if (!response.ok) throw new Error(data?.error || `Request failed (${response.status})`);
+    return data;
+  }
+
+  async function refreshLibrary(selectId = null) {
+    const docs = await api("/api/documents");
+    library.innerHTML = '<option value="">Your library</option>';
+    for (const doc of docs) {
+      const option = document.createElement("option");
+      option.value = doc.id;
+      option.textContent = doc.filename;
+      option.dataset.page = doc.last_page;
+      library.append(option);
+    }
+    const target = selectId || activeId;
+    if (target && docs.some(d => d.id === target)) {
+      library.value = target;
+      await openDocument(target);
+    } else if (docs.length) {
+      library.value = docs[0].id;
+      await openDocument(docs[0].id);
+    } else if (!docs.length) {
+      activeId = null;
+      deleteBtn.disabled = true;
+      showEmpty();
+    }
+  }
+
+  function showEmpty() {
+    viewer.replaceChildren(empty);
+    empty.hidden = false;
+    progress.textContent = "";
+  }
+
+  function saveProgress(page) {
+    if (!activeId) return;
+    visiblePage = Math.max(1, page);
+    progress.textContent = `Page ${visiblePage}${pdf ? ` / ${pdf.numPages}` : ""}`;
+    clearTimeout(saveTimer);
+    const id = activeId;
+    const pageToSave = visiblePage;
+    saveTimer = setTimeout(async () => {
+      try {
+        await api(`/api/documents/${id}/progress`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ page: pageToSave })
+        });
+        const option = [...library.options].find(o => o.value === id);
+        if (option) option.dataset.page = pageToSave;
+      } catch (err) {
+        status.textContent = `Couldn't save position: ${err.message}`;
+      }
+    }, 500);
+  }
+
+  function watchPages() {
+    observer?.disconnect();
+    observer = new IntersectionObserver(entries => {
+      const visible = entries
+        .filter(e => e.isIntersecting)
+        .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+      if (visible) {
+        const page = Number(visible.target.dataset.page);
+        if (page !== visiblePage) saveProgress(page);
+      }
+    }, { root: null, threshold: [0.15, 0.35, 0.55, 0.75] });
+    pageElements.forEach(el => observer.observe(el));
+  }
+
+  async function renderPage(pageNumber, token) {
+    if (token !== renderToken || !pdf) return;
+    const canvas = document.querySelector(`#page-${pageNumber} canvas`);
+    if (!canvas || canvas.dataset.rendered === "yes") return;
+    canvas.dataset.rendered = "loading";
+    try {
+      const page = await pdf.getPage(pageNumber);
+      if (token !== renderToken) return;
+      const base = page.getViewport({ scale: 1 });
+      const scale = Math.max(1, viewer.clientWidth) / base.width;
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const viewport = page.getViewport({ scale: scale * dpr });
+      const context = canvas.getContext("2d", { alpha: false });
+      canvas.width = Math.floor(viewport.width);
+      canvas.height = Math.floor(viewport.height);
+      canvas.style.width = "100%";
+      canvas.style.height = "auto";
+      await page.render({ canvasContext: context, viewport }).promise;
+      canvas.dataset.rendered = "yes";
+    } catch (err) {
+      canvas.dataset.rendered = "";
+      status.textContent = `Couldn't render page ${pageNumber}: ${err.message}`;
+    }
+  }
+
+  async function openDocument(id) {
+    activeId = id;
+    deleteBtn.disabled = !id;
+    if (!id) { showEmpty(); return; }
+
+    status.textContent = "Opening PDF…";
+    clearTimeout(saveTimer);
+    observer?.disconnect();
+    renderObserver?.disconnect();
+    renderToken++;
+    const token = renderToken;
+    viewer.replaceChildren();
+    pageElements.clear();
+
+    try {
+      const selected = library.selectedOptions[0];
+      const startPage = Math.max(1, Number(selected?.dataset.page || 1));
+      pdf = await pdfjsLib.getDocument(`/api/documents/${id}/file`).promise;
+      if (token !== renderToken) return;
+
+      const fragment = document.createDocumentFragment();
+      const width = Math.max(1, viewer.clientWidth);
+      // Build correctly-sized placeholders for the whole document, but only
+      // rasterize pages close to the viewport to keep long novels lightweight.
+      for (let n = 1; n <= pdf.numPages; n++) {
+        const page = await pdf.getPage(n);
+        if (token !== renderToken) return;
+        const size = page.getViewport({ scale: width / page.getViewport({ scale: 1 }).width });
+        const section = document.createElement("section");
+        section.className = "page";
+        section.id = `page-${n}`;
+        section.dataset.page = n;
+        section.style.aspectRatio = `${size.width} / ${size.height}`;
+        const canvas = document.createElement("canvas");
+        canvas.setAttribute("aria-label", `Page ${n}`);
+        section.append(canvas);
+        fragment.append(section);
+        pageElements.set(n, section);
+      }
+      viewer.append(fragment);
+      progress.textContent = `Page ${startPage} / ${pdf.numPages}`;
+      status.textContent = `${pdf.numPages} pages`;
+
+      renderObserver = new IntersectionObserver(entries => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            const n = Number(entry.target.dataset.page);
+            renderPage(n, token);
+            renderObserver.unobserve(entry.target);
+          }
+        }
+      }, { rootMargin: "1400px 0px" });
+      pageElements.forEach(el => renderObserver.observe(el));
+      watchPages();
+      visiblePage = startPage;
+      document.querySelector(`#page-${startPage}`)?.scrollIntoView({ block: "start" });
+      renderPage(startPage, token);
+      saveProgress(startPage);
+    } catch (err) {
+      status.textContent = `Couldn't open PDF: ${err.message}`;
+    }
+  }
+
+  library.addEventListener("change", () => openDocument(library.value));
+
+  fileInput.addEventListener("change", async () => {
+    const file = fileInput.files[0];
+    if (!file) return;
+    status.textContent = "Uploading…";
+    const body = new FormData();
+    body.append("file", file);
+    try {
+      const result = await api("/api/documents", { method: "POST", body });
+      fileInput.value = "";
+      await refreshLibrary(result.id);
+      status.textContent = "Uploaded";
+    } catch (err) {
+      status.textContent = err.message;
+    }
+  });
+
+  deleteBtn.addEventListener("click", async () => {
+    if (!activeId || !confirm("Delete this PDF and its saved reading position?")) return;
+    try {
+      await api(`/api/documents/${activeId}`, { method: "DELETE" });
+      activeId = null;
+      pdf = null;
+      await refreshLibrary();
+      status.textContent = "Deleted";
+    } catch (err) {
+      status.textContent = err.message;
+    }
+  });
+
+  let resizeTimer;
+  window.addEventListener("resize", () => {
+    if (!pdf || !activeId) return;
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => openDocument(activeId), 250);
+  });
+
+  refreshLibrary().catch(err => status.textContent = err.message);
+</script>
+</body>
+</html>
