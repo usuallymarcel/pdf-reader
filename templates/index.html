@@ -119,28 +119,40 @@ async function refreshLibrary(selectId = null) {
     progress.textContent = "";
   }
 
-  function saveProgress(page) {
+    function saveProgress(page) {
     if (!activeId) return;
-    visiblePage = Math.max(1, page);
-    progress.textContent = `Page ${visiblePage}${pdf ? ` / ${pdf.numPages}` : ""}`;
-    clearTimeout(saveTimer);
+
     const id = activeId;
+    const currentPage = Math.max(1, Number(page) || 1);
+
+    // Never allow reading progress to move backwards.
+    visiblePage = Math.max(visiblePage, currentPage);
+
+    progress.textContent = `Page ${visiblePage}${pdf ? ` / ${pdf.numPages}` : ""}`;
+
+    clearTimeout(saveTimer);
+
     const pageToSave = visiblePage;
+
     saveTimer = setTimeout(async () => {
-      try {
+        try {
         await api(`/api/documents/${id}/progress`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ page: pageToSave })
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ page: pageToSave })
         });
+
         const option = [...library.options].find(o => o.value === id);
-        if (option) option.dataset.page = pageToSave;
-      } catch (err) {
-        // status.textContent = `Couldn't save position: ${err.message}`;
-        console.log(err.message)
-      }
+
+        if (option) {
+            const previousPage = Number(option.dataset.page) || 1;
+            option.dataset.page = Math.max(previousPage, pageToSave);
+        }
+        } catch (err) {
+        console.log(err.message);
+        }
     }, 500);
-  }
+    }
 
   function watchPages() {
     observer?.disconnect();
@@ -241,7 +253,7 @@ async function refreshLibrary(selectId = null) {
       }, { rootMargin: "1400px 0px" });
       pageElements.forEach(el => renderObserver.observe(el));
       watchPages();
-      visiblePage = startPage;
+      visiblePage = Math.max(startPage, Number(selected?.dataset.page) || 1);
       document.querySelector(`#page-${startPage}`)?.scrollIntoView({ block: "start" });
       renderPage(startPage, token);
     } catch (err) {
