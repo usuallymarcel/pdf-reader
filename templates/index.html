@@ -42,7 +42,7 @@
   <input id="fileInput" type="file" accept="application/pdf,.pdf">
   <button id="deleteBtn" disabled>Delete</button>
   <span id="progress"></span>
-  <span id="status">Ready</span>
+  <!-- <span id="status">Ready</span> -->
 </header>
 
 <main id="viewer">
@@ -131,7 +131,8 @@
         const option = [...library.options].find(o => o.value === id);
         if (option) option.dataset.page = pageToSave;
       } catch (err) {
-        status.textContent = `Couldn't save position: ${err.message}`;
+        // status.textContent = `Couldn't save position: ${err.message}`;
+        console.log(err.message)
       }
     }, 500);
   }
@@ -171,7 +172,8 @@
       canvas.dataset.rendered = "yes";
     } catch (err) {
       canvas.dataset.rendered = "";
-      status.textContent = `Couldn't render page ${pageNumber}: ${err.message}`;
+    //   status.textContent = `Couldn't render page ${pageNumber}: ${err.message}`;
+        console.log(err.message)
     }
   }
 
@@ -234,7 +236,8 @@
       renderPage(startPage, token);
       saveProgress(startPage);
     } catch (err) {
-      status.textContent = `Couldn't open PDF: ${err.message}`;
+    //   status.textContent = `Couldn't open PDF: ${err.message}`;
+      console.log(err.message)
     }
   }
 
@@ -252,7 +255,8 @@
       await refreshLibrary(result.id);
       status.textContent = "Uploaded";
     } catch (err) {
-      status.textContent = err.message;
+    //   status.textContent = err.message;
+      console.log(err.message)
     }
   });
 
@@ -265,7 +269,8 @@
       await refreshLibrary();
       status.textContent = "Deleted";
     } catch (err) {
-      status.textContent = err.message;
+    //   status.textContent = err.message;
+    console.log(err.message)
     }
   });
 
@@ -276,7 +281,7 @@
     resizeTimer = setTimeout(() => openDocument(activeId), 250);
   });
 
-  refreshLibrary().catch(err => status.textContent = err.message);
+  refreshLibrary().catch(err => console.log(err.message));
 </script>
 </body>
 </html>
