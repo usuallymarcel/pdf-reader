@@ -1,12 +1,16 @@
 import type { Direction, DocKind, ReaderMode } from '../api/types'
 
-export type Theme = 'system' | 'dark' | 'oled' | 'light' | 'sepia'
+export type Theme =
+  | 'system' | 'custom' | 'dark' | 'oled' | 'slate' | 'midnight' | 'forest' | 'plum' | 'ember'
+  | 'light' | 'paper' | 'sepia' | 'sage' | 'sky' | 'blush'
+export type Corners = 'sharp' | 'soft' | 'round'
 export type Fit = 'contain' | 'width' | 'height' | 'original'
 export type Spreads = 'auto' | 'single' | 'double'
 export type Transition = 'slide' | 'fade' | 'none'
 export type TapLayout = 'sides' | 'kindle' | 'edges' | 'off'
 export type WheelAction = 'page' | 'zoom' | 'scroll'
-export type PageBackground = 'black' | 'dark' | 'gray' | 'white' | 'sepia'
+export type PageBackground =
+  | 'black' | 'dark' | 'gray' | 'navy' | 'forest' | 'plum' | 'amber' | 'white' | 'paper' | 'sepia' | 'sage' | 'sky' | 'rose' | 'custom'
 export type ProgressIndicator = 'hairline' | 'pages' | 'off'
 export type ReflowFont = 'literata' | 'inter' | 'system' | 'serif' | 'opendyslexic'
 export type ReflowLayout = 'paged' | 'scroll'
@@ -24,6 +28,8 @@ export interface ReflowSettings {
   layout: ReflowLayout
   columns: 'auto' | 1 | 2
 }
+
+export interface CustomColors { bg: string; fg: string }
 
 export interface PageFilters {
   brightness: number // 0.3..1.3
@@ -43,6 +49,8 @@ export interface ReaderProfile {
   fit: Fit
   pageGap: number // px, scroll mode and spreads, 0..48
   background: PageBackground
+  /** used when background is 'custom' */
+  customColors: CustomColors
   transition: Transition
   tapLayout: TapLayout
   tapInvert: boolean
@@ -62,7 +70,10 @@ export interface ReaderProfile {
 export interface Preferences {
   version: 1
   theme: Theme
-  accent: string // css color
+  accent: string // #rrggbb
+  /** used when theme is 'custom' */
+  customTheme: CustomColors
+  corners: Corners
   coverSize: 'small' | 'medium' | 'large'
   haptics: boolean
   groupSeries: boolean
@@ -78,7 +89,7 @@ const filters: PageFilters = { brightness: 1, contrast: 1, warmth: 0, invert: fa
 
 const baseProfile: ReaderProfile = {
   mode: 'auto', direction: 'ltr', spreads: 'auto', coverAlone: true, spreadShift: false, fit: 'contain', pageGap: 0,
-  background: 'black', transition: 'slide', tapLayout: 'sides', tapInvert: false, swipe: true,
+  background: 'black', customColors: { bg: '#1c1a17', fg: '#e6dfd0' }, transition: 'slide', tapLayout: 'sides', tapInvert: false, swipe: true,
   wheel: 'page', cropMargins: false, stickyZoom: false, filters, indicator: 'off', keepAwake: true, autoNextVolume: true,
   preload: 4, reflow,
 }
@@ -87,6 +98,8 @@ export const DEFAULT_PREFERENCES: Preferences = {
   version: 1,
   theme: 'dark',
   accent: '#7c9cff',
+  customTheme: { bg: '#14181f', fg: '#e8ecf2' },
+  corners: 'soft',
   coverSize: 'medium',
   haptics: true,
   groupSeries: true,

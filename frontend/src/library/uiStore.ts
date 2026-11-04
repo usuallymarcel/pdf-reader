@@ -1,7 +1,8 @@
 import { create } from 'zustand'
 
 export type LibrarySort = 'recent' | 'added' | 'title' | 'progress'
-export type LibraryFilter = 'all' | 'reading' | 'unread' | 'finished' | 'favorites' | 'manga' | 'novels' | 'downloaded'
+export type LibraryFilter =
+  | 'all' | 'reading' | 'unread' | 'finished' | 'favorites' | 'manga' | 'novels' | 'downloaded' | `collection:${number}`
 
 const STORAGE_KEY = 'shelf.library-ui'
 
@@ -19,6 +20,8 @@ interface LibraryUi extends Stored {
   query: string
   /** open details sheet */
   sheetDocId: string | null
+  /** name of the series whose sheet is open */
+  seriesSheet: string | null
   /** null: not in multi-select mode */
   selected: string[] | null
   /** hidden from view while their undo toast is up */
@@ -27,6 +30,7 @@ interface LibraryUi extends Stored {
   setFilter: (filter: LibraryFilter) => void
   setQuery: (query: string) => void
   openSheet: (id: string | null) => void
+  openSeries: (name: string | null) => void
   startSelecting: (ids?: string[]) => void
   toggleSelected: (ids: string[]) => void
   stopSelecting: () => void
@@ -43,12 +47,14 @@ export const useLibraryUi = create<LibraryUi>((set, get) => {
     ...load(),
     query: '',
     sheetDocId: null,
+    seriesSheet: null,
     selected: null,
     pendingDeletes: [],
     setSort: (sort) => { set({ sort }); persist() },
     setFilter: (filter) => { set({ filter }); persist() },
     setQuery: (query) => set({ query }),
     openSheet: (sheetDocId) => set({ sheetDocId }),
+    openSeries: (seriesSheet) => set({ seriesSheet }),
     startSelecting: (ids = []) => set({ selected: ids, sheetDocId: null }),
     toggleSelected: (ids) => set((s) => {
       const current = s.selected ?? []

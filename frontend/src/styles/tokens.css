@@ -11,19 +11,9 @@
   --tap: 44px;
   --z-chrome: 20; --z-sheet: 40; --z-toast: 60;
 }
-:root, [data-theme='dark'] {
+/* The default until src/app/theme.ts applies the chosen theme, which sets all of these. */
+:root {
   --bg: #0b0c0e; --bg-raised: #141518; --bg-overlay: #1b1d21f2; --bg-hover: #ffffff12;
   --fg: #f1f2f4; --fg-muted: #a1a5ad; --fg-faint: #6c7079; --line: #ffffff17;
   --danger: #ff6b6b; --shadow: 0 8px 32px #0009;
-}
-[data-theme='oled'] { --bg: #000; --bg-raised: #0d0d0f; --bg-overlay: #111214f5; }
-[data-theme='light'] {
-  --bg: #f6f6f7; --bg-raised: #fff; --bg-overlay: #fffffff5; --bg-hover: #0000000d;
-  --fg: #16171a; --fg-muted: #5c6068; --fg-faint: #8c9099; --line: #00000014;
-  --danger: #d33; --shadow: 0 8px 28px #0002;
-}
-[data-theme='sepia'] {
-  --bg: #f3ead9; --bg-raised: #fbf4e6; --bg-overlay: #fbf4e6f5; --bg-hover: #5b432014;
-  --fg: #3b2e1e; --fg-muted: #6e5c44; --fg-faint: #9a8870; --line: #5b43201f;
-  --danger: #b33; --shadow: 0 8px 28px #5b432033;
 }

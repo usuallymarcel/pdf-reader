@@ -1,7 +1,8 @@
 import { useQuery } from '@tanstack/react-query'
-import { ArrowLeft, Loader2 } from 'lucide-react'
+import { ArrowLeft } from 'lucide-react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { api } from '../api/client'
+import { Boot, Spinner } from '../ui/primitives'
 import { Reader } from './Reader'
 import './reader.css'
 
@@ -11,7 +12,7 @@ function Message({ title, detail, busy }: { title: string; detail?: string; busy
     <div className="reader-message">
       <button type="button" className="icon-btn" aria-label="Back to library" onClick={() => navigate('/')}><ArrowLeft size={22} /></button>
       <div>
-        {busy && <Loader2 className="reader-spin" size={24} aria-hidden />}
+        {busy && <Spinner />}
         <h1>{title}</h1>
         {detail && <p>{detail}</p>}
       </div>
@@ -28,7 +29,7 @@ function Loader({ id }: { id: string }) {
   })
   const doc = query.data
   if (query.isError && !doc) return <Message title="This book could not be opened" detail={query.error.message} />
-  if (!doc) return <div className="reader-boot" role="status" aria-label="Opening book"><Loader2 className="reader-spin" size={24} /></div>
+  if (!doc) return <Boot label="Opening book" />
   if (doc.status === 'processing') return <Message title="Preparing this book" detail="It will open by itself in a moment." busy />
   if (doc.status === 'failed') return <Message title="This book could not be processed" detail={doc.error ?? undefined} />
   return <Reader doc={doc} />

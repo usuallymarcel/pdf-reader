@@ -160,6 +160,40 @@ async function api(req, res, url) {
     return send(res, 200, hits)
   }
   if (path === '/api/documents' && method === 'POST') return upload(req, res, user)
+  if (path === '/api/documents/bulk-update' && method === 'POST') {
+    const { ids, changes } = await readJson(req)
+    const docs = visible(user).filter((d) => ids.includes(d.id))
+    if (docs.length !== ids.length) return send(res, 404, { error: 'Document not found.' })
+    for (const d of docs) Object.assign(d, changes)
+    return send(res, 200, docs.map(publicDoc))
+  }
+  if (path === '/api/collections') {
+    state.collections ??= []
+    if (method === 'GET') return send(res, 200, [...state.collections].sort((a, b) => a.name.localeCompare(b.name)))
+    const { name } = await readJson(req)
+    if (state.collections.some((c) => c.name === name)) return send(res, 409, { error: 'You already have a collection with that name.' })
+    const made = { id: (state.nextCollection = (state.nextCollection ?? 0) + 1), name }
+    state.collections.push(made)
+    return send(res, 201, made)
+  }
+  const collection = /^\/api\/collections\/(\d+)(\/items)?$/.exec(path)
+  if (collection) {
+    const id = Number(collection[1])
+    const found = (state.collections ?? []).find((c) => c.id === id)
+    if (!found) return send(res, 404, { error: 'Collection not found.' })
+    if (collection[2]) {
+      const { add = [], remove = [] } = await readJson(req)
+      for (const d of state.docs) {
+        d.collections = (d.collections ?? []).filter((c) => c !== id || !remove.includes(d.id))
+        if (add.includes(d.id) && !d.collections.includes(id)) d.collections.push(id)
+      }
+      return send(res, 204)
+    }
+    if (method === 'PATCH') { found.name = (await readJson(req)).name; return send(res, 200, found) }
+    state.collections = state.collections.filter((c) => c !== found)
+    for (const d of state.docs) d.collections = (d.collections ?? []).filter((c) => c !== id)
+    return send(res, 204)
+  }
 
   const match = /^\/api\/documents\/([^/]+)(?:\/(\w+))?$/.exec(path)
   const bookmark = /^\/api\/bookmarks\/\d+$/.test(path)

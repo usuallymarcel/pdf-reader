@@ -81,6 +81,30 @@ export function saveProgress(id: string, update: ProgressUpdate, keepalive = fal
   })
 }
 
+const unsentKey = (id: string) => `shelf.unsent-position.${currentScope()}.${id}`
+
+/**
+ * The last position written while leaving a book. A request made as a page unloads can be dropped,
+ * and an app killed in the background gets no second chance, but this write is synchronous.
+ */
+export function rememberPosition(id: string, update: ProgressUpdate) {
+  try { localStorage.setItem(unsentKey(id), JSON.stringify(update)) } catch { /* storage full or denied */ }
+}
+
+/** The remembered position, if the server never received it. */
+export function unsentPosition(doc: Pick<Doc, 'id' | 'state'>): ProgressUpdate | null {
+  try {
+    const saved = JSON.parse(localStorage.getItem(unsentKey(doc.id)) ?? 'null') as ProgressUpdate | null
+    return saved && saved.client_ts > doc.state.client_ts ? saved : null
+  } catch {
+    return null
+  }
+}
+
+export function forgetPosition(id: string) {
+  try { localStorage.removeItem(unsentKey(id)) } catch { /* nothing to forget */ }
+}
+
 /** Shows queued positions in the library while they cannot reach the server. */
 export async function overlayQueuedProgress(docs: Doc[]): Promise<Doc[]> {
   const items = await queued(currentScope()).catch(() => [] as Queued[])

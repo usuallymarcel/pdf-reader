@@ -1,9 +1,9 @@
 import { ApiError, api } from '../api/client'
-import type { Doc, DocPatch, StatePatch } from '../api/types'
+import type { BulkChanges, Collection, Doc, DocPatch, StatePatch } from '../api/types'
 import { queryClient } from '../app/queryClient'
 import { DownloadError, useDownloads } from '../offline/downloads'
 import { toast } from '../ui/primitives'
-import { LIBRARY_KEY, updateDocInCache } from './data'
+import { COLLECTIONS_KEY, LIBRARY_KEY, collectionFilter, updateDocInCache } from './data'
 import { useLibraryUi } from './uiStore'
 
 const UNDO_MS = 6000
@@ -35,11 +35,86 @@ export async function patchDoc(doc: Doc, patch: DocPatch) {
   return saved
 }
 
-export async function addToSeries(docs: Doc[], series: string) {
-  const results = await Promise.allSettled(docs.map((d) => patchDoc(d, { series })))
-  const failed = results.filter((r) => r.status === 'rejected').length
-  toast(failed ? `${failed} could not be moved` : `Added to ${series}`)
-  await refresh()
+/** All the books change or none do. Resolves to whether it worked; failures are reported here. */
+export async function bulkChange(docs: Doc[], changes: BulkChanges) {
+  try {
+    const saved = await api.bulkUpdate(docs.map((d) => d.id), changes)
+    for (const doc of saved) updateDocInCache(doc.id, () => doc)
+    return true
+  } catch (err) {
+    toast(message(err, 'Could not save that change'))
+    return false
+  }
+}
+
+export async function moveToSeries(docs: Doc[], series: string | null) {
+  const before = new Map<string | null, Doc[]>()
+  for (const doc of docs) before.set(doc.series, [...(before.get(doc.series) ?? []), doc])
+  if (!await bulkChange(docs, { series })) return false
+  const what = docs.length === 1 ? (docs[0]?.title ?? '') : `${docs.length} books`
+  toast(series ? `Moved ${what} to ${series}` : `Took ${what} out of the series`, {
+    label: 'Undo',
+    run: () => { for (const [previous, group] of before) void bulkChange(group, { series: previous }) },
+  }, UNDO_MS)
+  return true
+}
+
+/* ---- collections ---- */
+
+const refreshCollections = () => queryClient.invalidateQueries({ queryKey: COLLECTIONS_KEY })
+
+export async function createCollection(name: string) {
+  try {
+    const made = await api.createCollection(name)
+    await refreshCollections()
+    return made
+  } catch (err) {
+    toast(message(err, 'Could not create that collection'))
+    return null
+  }
+}
+
+export async function renameCollection(collection: Collection, name: string) {
+  try {
+    await api.renameCollection(collection.id, name)
+    await refreshCollections()
+    return true
+  } catch (err) {
+    toast(message(err, 'Could not rename that collection'))
+    return false
+  }
+}
+
+export async function deleteCollection(collection: Collection) {
+  try {
+    await api.deleteCollection(collection.id)
+  } catch (err) {
+    toast(message(err, 'Could not delete that collection'))
+    return
+  }
+  queryClient.setQueryData<Doc[]>(LIBRARY_KEY, (docs) => docs?.map((d) => ({
+    ...d, collections: d.collections?.filter((id) => id !== collection.id),
+  })))
+  const ui = useLibraryUi.getState()
+  if (ui.filter === collectionFilter(collection.id)) ui.setFilter('all')
+  await refreshCollections()
+}
+
+/** Optimistic, like favorites: the tick moves at once and a failure rolls back through a refetch. */
+export async function setInCollection(collection: Collection, docs: Doc[], member: boolean) {
+  const ids = docs.map((d) => d.id)
+  for (const doc of docs) {
+    updateDocInCache(doc.id, (d) => {
+      const others = (d.collections ?? []).filter((id) => id !== collection.id)
+      return { ...d, collections: member ? [...others, collection.id] : others }
+    })
+  }
+  try {
+    await api.changeCollection(collection.id, member ? { add: ids } : { remove: ids })
+  } catch (err) {
+    toast(message(err, 'Could not change that collection'))
+    await refresh()
+  }
 }
 
 export async function retryProcessing(doc: Doc) {

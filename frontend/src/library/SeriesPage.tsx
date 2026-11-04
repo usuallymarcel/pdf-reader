@@ -1,15 +1,18 @@
-import { ArrowLeft, Play } from 'lucide-react'
+import { ArrowLeft, MoreHorizontal, Play } from 'lucide-react'
 import { useMemo } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { coverUrl } from '../api/client'
 import { BookSheet } from './BookSheet'
 import { compareVolumes, nextUnread, toShelfItems, useLibrary } from './data'
 import { SelectionBar } from './SelectionBar'
+import { SeriesSheet } from './SeriesSheet'
 import { GridSkeleton, ShelfGrid } from './ShelfGrid'
+import { useLibraryUi } from './uiStore'
 
 export function SeriesPage() {
   const { name = '' } = useParams()
   const { docs, isPending } = useLibrary()
+  const openSeries = useLibraryUi((s) => s.openSeries)
   const volumes = useMemo(() => docs.filter((d) => d.series === name).sort(compareVolumes), [docs, name])
   const finished = volumes.filter((d) => d.state.finished).length
   const next = nextUnread(volumes)
@@ -19,7 +22,14 @@ export function SeriesPage() {
   return (
     <div className="page series">
       {backdrop && <div className="series-backdrop" aria-hidden="true" style={{ backgroundImage: `url("${coverUrl(backdrop)}")` }} />}
-      <Link to="/" viewTransition className="back-link"><ArrowLeft size={20} aria-hidden="true" /> Library</Link>
+      <div className="series-top">
+        <Link to="/" viewTransition className="back-link"><ArrowLeft size={20} aria-hidden="true" /> Library</Link>
+        {volumes.length > 0 && (
+          <button type="button" className="icon-btn" aria-label="Manage series" title="Manage series" onClick={() => openSeries(name)}>
+            <MoreHorizontal size={22} />
+          </button>
+        )}
+      </div>
       <header className="series-head">
         <h1>{name}</h1>
         {volumes.length > 0 && (
@@ -50,6 +60,7 @@ export function SeriesPage() {
           ? <ShelfGrid items={toShelfItems(volumes, false)} showSeries={false} />
           : <p className="empty">This series is no longer in your library.</p>}
       <BookSheet />
+      <SeriesSheet />
       <SelectionBar />
     </div>
   )

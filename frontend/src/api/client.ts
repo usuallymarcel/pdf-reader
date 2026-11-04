@@ -1,5 +1,5 @@
 import type {
-  Bookmark, Doc, DocDetail, DocPatch, PreferencesEnvelope, ProgressUpdate, ReadingState,
+  Bookmark, BulkChanges, Collection, Doc, DocDetail, DocPatch, PreferencesEnvelope, ProgressUpdate, ReadingState,
   ReflowDoc, SearchHit, Session, StatePatch, Stats, UploadResult,
 } from './types'
 
@@ -46,6 +46,7 @@ export const api = {
   stats: () => request<Stats>('/api/stats'),
   document: (id: string) => request<DocDetail>(`/api/documents/${id}`),
   patchDocument: (id: string, patch: DocPatch) => request<Doc>(`/api/documents/${id}`, json('PATCH', patch)),
+  bulkUpdate: (ids: string[], changes: BulkChanges) => request<Doc[]>('/api/documents/bulk-update', json('POST', { ids, changes })),
   deleteDocument: (id: string) => request<void>(`/api/documents/${id}`, { method: 'DELETE' }),
   reprocess: (id: string) => request<Doc>(`/api/documents/${id}/reprocess`, json('POST')),
   reflow: (id: string) => request<ReflowDoc>(`/api/documents/${id}/text`),
@@ -53,6 +54,13 @@ export const api = {
   saveProgress: (id: string, update: ProgressUpdate, keepalive = false) =>
     request<ReadingState>(`/api/documents/${id}/progress`, { ...json('PUT', update), keepalive }),
   patchState: (id: string, patch: StatePatch) => request<ReadingState>(`/api/documents/${id}/state`, json('PATCH', patch)),
+
+  collections: () => request<Collection[]>('/api/collections'),
+  createCollection: (name: string) => request<Collection>('/api/collections', json('POST', { name })),
+  renameCollection: (id: number, name: string) => request<Collection>(`/api/collections/${id}`, json('PATCH', { name })),
+  deleteCollection: (id: number) => request<void>(`/api/collections/${id}`, { method: 'DELETE' }),
+  changeCollection: (id: number, change: { add?: string[]; remove?: string[] }) =>
+    request<void>(`/api/collections/${id}/items`, json('POST', change)),
 
   addBookmark: (id: string, b: { page: number; note?: string; locator?: number }) =>
     request<Bookmark>(`/api/documents/${id}/bookmarks`, json('POST', b)),

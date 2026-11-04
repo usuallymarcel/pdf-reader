@@ -1,6 +1,7 @@
 import type { ReflowBlock, ReflowDoc } from '../../api/types'
 import type { OutlineItem } from '../../api/types'
-import type { PageBackground, ReaderProfile, ReflowFont, ReflowSettings } from '../../settings/schema'
+import type { ReadingColors } from '../../settings/colorways'
+import type { ReaderProfile, ReflowFont, ReflowSettings } from '../../settings/schema'
 import { buildReflowIndex, type Anchor, type Position, type ReflowIndex } from '../layout/position'
 import { chunkSections, type Section } from '../layout/sections'
 import type { PageSize } from '../layout/spreads'
@@ -52,17 +53,8 @@ export async function loadFont(font: ReflowFont, size: number): Promise<void> {
   await document.fonts.load(`${size}px ${family}`).catch(() => undefined)
 }
 
-export const REFLOW_COLORS: Record<PageBackground, { bg: string; fg: string; muted: string }> = {
-  black: { bg: '#000000', fg: '#c8c8c8', muted: '#7a7a7a' },
-  dark: { bg: '#15161a', fg: '#d6d7da', muted: '#83858c' },
-  gray: { bg: '#2c2d31', fg: '#e2e2e4', muted: '#9a9ba0' },
-  white: { bg: '#ffffff', fg: '#1b1b1d', muted: '#77787d' },
-  sepia: { bg: '#f3ead9', fg: '#3b2e1e', muted: '#8a7860' },
-}
-
-export function applyTypography(root: HTMLElement, s: ReflowSettings, background: PageBackground, lang: string) {
+export function applyTypography(root: HTMLElement, s: ReflowSettings, c: ReadingColors, lang: string) {
   const st = root.style
-  const c = REFLOW_COLORS[background]
   st.setProperty('--rf-font', FONT_STACK[s.font])
   st.setProperty('--rf-size', `${s.fontSize}px`)
   st.setProperty('--rf-lh', String(s.lineHeight))

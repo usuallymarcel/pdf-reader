@@ -35,7 +35,7 @@ export function SessionWatcher() {
       await useDownloads.getState().refresh()
       if (changed) {
         // reset, not remove: mounted pages stay subscribed and refetch for the new scope.
-        await Promise.all([qc.resetQueries({ queryKey: ['library'] }), qc.resetQueries({ queryKey: ['stats'] })])
+        await Promise.all(['library', 'stats', 'collections'].map((key) => qc.resetQueries({ queryKey: [key] })))
       }
       if (scope !== 'anon') await usePreferences.getState().hydrate()
     })()

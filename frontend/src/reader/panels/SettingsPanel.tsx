@@ -1,10 +1,11 @@
 import { useEffect, type ReactNode } from 'react'
-import type { DocDetail, ReaderMode } from '../../api/types'
+import type { DocDetail } from '../../api/types'
 import type {
-  Fit, PageBackground, ProgressIndicator, ReaderProfile, ReflowFont, ReflowLayout, Spreads, TapLayout, Transition, WheelAction,
+  Fit, ProgressIndicator, ReaderProfile, ReflowFont, Spreads, TapLayout, Transition, WheelAction,
 } from '../../settings/schema'
+import { ColorwayPicker } from '../../settings/ColorwayPicker'
 import { Segmented, Sheet, Slider, Switch } from '../../ui/primitives'
-import { BACKGROUNDS } from '../look'
+import { isContinuous, isTextView, makeView, type ReaderView } from '../look'
 
 export type Scope = 'book' | 'all'
 
@@ -21,14 +22,14 @@ function Group({ title, children }: { title: string; children: ReactNode }) {
   return <section className="settings-group"><h3>{title}</h3>{children}</section>
 }
 
-export function SettingsPanel({ doc, profile: p, mode, scope, onScope, onChange, onMode, onReset, onClose }: {
+export function SettingsPanel({ doc, profile: p, view, scope, onScope, onChange, onView, onReset, onClose }: {
   doc: DocDetail
   profile: ReaderProfile
-  mode: ReaderMode
+  view: ReaderView
   scope: Scope
   onScope: (s: Scope) => void
   onChange: (patch: Record<string, unknown>) => void
-  onMode: (m: ReaderMode) => void
+  onView: (v: ReaderView) => void
   onReset: () => void
   onClose: () => void
 }) {
@@ -39,8 +40,10 @@ export function SettingsPanel({ doc, profile: p, mode, scope, onScope, onChange,
   const kindLabel = doc.kind === 'manga' ? 'All manga' : 'All novels'
   const filter = (patch: Record<string, unknown>) => onChange({ filters: patch })
   const reflow = (patch: Record<string, unknown>) => onChange({ reflow: patch })
-  const paged = mode === 'paged'
-  const image = mode !== 'reflow'
+  const text = isTextView(view)
+  const continuous = isContinuous(view)
+  const paged = view === 'paged'
+  const image = !text
   return (
     <Sheet title="Reading settings" onClose={onClose} modal={false}>
       <div className="settings-scope">
@@ -49,11 +52,18 @@ export function SettingsPanel({ doc, profile: p, mode, scope, onScope, onChange,
       </div>
 
       <Group title="Layout">
-        <div className="field-col">
-          <Segmented<ReaderMode> label="Reading mode" value={mode} onChange={onMode}
-            options={[{ value: 'paged', label: 'Paged' }, { value: 'scroll', label: 'Continuous' }, ...(doc.has_text ? [{ value: 'reflow' as const, label: 'Text' }] : [])]} />
-          {!doc.has_text && <span className="hint">Text mode needs a book with a text layer; this one is image only.</span>}
-        </div>
+        {doc.has_text
+          ? (
+            <Row label="Show" hint={text ? 'Just the words, in your font and colors' : 'The pages as they were printed'}>
+              <Segmented label="Show" value={text ? 'text' : 'original'} onChange={(show) => onView(makeView(show === 'text', continuous))}
+                options={[{ value: 'original', label: 'Original' }, { value: 'text', label: 'Text' }]} />
+            </Row>
+          )
+          : <p className="hint">Text mode needs a book with a text layer; this one is image only.</p>}
+        <Row label="Flow">
+          <Segmented label="Flow" value={continuous ? 'continuous' : 'pages'} onChange={(flow) => onView(makeView(text, flow === 'continuous'))}
+            options={[{ value: 'pages', label: 'Pages' }, { value: 'continuous', label: 'Continuous' }]} />
+        </Row>
         {image && (
           <Row label="Direction">
             <Segmented label="Direction" value={p.direction} onChange={(direction) => onChange({ direction })}
@@ -86,7 +96,7 @@ export function SettingsPanel({ doc, profile: p, mode, scope, onScope, onChange,
         )}
       </Group>
 
-      {mode === 'reflow' && (
+      {text && (
         <Group title="Text">
           <div className="field-col">
             <Segmented<ReflowFont> label="Font" value={p.reflow.font} onChange={(font) => reflow({ font })}
@@ -100,24 +110,17 @@ export function SettingsPanel({ doc, profile: p, mode, scope, onScope, onChange,
           <Slider label="Indent" value={p.reflow.indent} min={0} max={3} step={0.1} format={(v) => `${v.toFixed(1)} em`} onChange={(indent) => reflow({ indent })} />
           <Row label="Justify"><Switch label="Justify" checked={p.reflow.justify} onChange={(justify) => reflow({ justify })} /></Row>
           <Row label="Hyphenate"><Switch label="Hyphenate" checked={p.reflow.hyphenate} onChange={(hyphenate) => reflow({ hyphenate })} /></Row>
-          <Row label="Layout">
-            <Segmented<ReflowLayout> label="Text layout" value={p.reflow.layout} onChange={(layout) => reflow({ layout })}
-              options={[{ value: 'paged', label: 'Pages' }, { value: 'scroll', label: 'Scroll' }]} />
-          </Row>
-          <Row label="Columns">
-            <Segmented<'auto' | 1 | 2> label="Columns" value={p.reflow.columns} onChange={(columns) => reflow({ columns })}
-              options={[{ value: 'auto', label: 'Auto' }, { value: 1, label: '1' }, { value: 2, label: '2' }]} />
-          </Row>
+          {!continuous && (
+            <Row label="Columns">
+              <Segmented<'auto' | 1 | 2> label="Columns" value={p.reflow.columns} onChange={(columns) => reflow({ columns })}
+                options={[{ value: 'auto', label: 'Auto' }, { value: 1, label: '1' }, { value: 2, label: '2' }]} />
+            </Row>
+          )}
         </Group>
       )}
 
-      <Group title="Look">
-        <div className="swatches" role="radiogroup" aria-label="Background">
-          {(Object.keys(BACKGROUNDS) as PageBackground[]).map((b) => (
-            <button key={b} type="button" role="radio" aria-checked={p.background === b} aria-label={b} className="swatch"
-              style={{ background: BACKGROUNDS[b] }} onClick={() => onChange({ background: b })} />
-          ))}
-        </div>
+      <Group title={text ? 'Colors' : 'Look'}>
+        <ColorwayPicker value={p.background} custom={p.customColors} showText={text} onChange={onChange} />
         <Slider label="Brightness" value={p.filters.brightness} min={0.3} max={1.3} step={0.01} format={(v) => `${Math.round(v * 100)}%`} onChange={(brightness) => filter({ brightness })} />
         <Slider label="Contrast" value={p.filters.contrast} min={0.7} max={1.5} step={0.01} format={(v) => `${Math.round(v * 100)}%`} onChange={(contrast) => filter({ contrast })} />
         <Slider label="Warmth" value={p.filters.warmth} min={0} max={1} step={0.01} format={(v) => `${Math.round(v * 100)}%`} onChange={(warmth) => filter({ warmth })} />

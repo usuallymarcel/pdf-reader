@@ -19,11 +19,13 @@ import { applyTheme, watchSystemTheme } from './theme'
 function ThemeSync() {
   const theme = usePreferences((s) => s.prefs.theme)
   const accent = usePreferences((s) => s.prefs.accent)
+  const corners = usePreferences((s) => s.prefs.corners)
+  const { bg, fg } = usePreferences((s) => s.prefs.customTheme)
   useEffect(() => {
-    const apply = () => applyTheme({ theme, accent })
+    const apply = () => applyTheme({ theme, accent, corners, customTheme: { bg, fg } })
     apply()
     return watchSystemTheme(apply)
-  }, [theme, accent])
+  }, [theme, accent, corners, bg, fg])
   return null
 }
 

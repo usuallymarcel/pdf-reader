@@ -37,6 +37,7 @@ class Document(Base):
     status: Mapped[str] = mapped_column(String(16), default='processing', index=True)
     error: Mapped[str | None] = mapped_column(Text)
     cover_version: Mapped[str | None] = mapped_column(String(32))
+    text_version: Mapped[int] = mapped_column(Integer, default=0)  # see reflow.TEXT_VERSION
 
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, onupdate=utcnow)
@@ -86,6 +87,25 @@ class Preference(Base):
     user_id: Mapped[int] = mapped_column(Integer, primary_key=True)
     data: Mapped[dict] = mapped_column(JSON)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, onupdate=utcnow)
+
+
+class Collection(Base):
+    """A user's own grouping. Unlike a series, a book can be in any number of these."""
+
+    __tablename__ = 'collections'
+    __table_args__ = (UniqueConstraint('user_id', 'name'),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer)
+    name: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
+class CollectionItem(Base):
+    __tablename__ = 'collection_items'
+
+    collection_id: Mapped[int] = mapped_column(ForeignKey('collections.id', ondelete='CASCADE'), primary_key=True)
+    document_id: Mapped[str] = mapped_column(ForeignKey('documents.id', ondelete='CASCADE'), primary_key=True, index=True)
 
 
 class PageText(Base):

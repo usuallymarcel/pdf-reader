@@ -1,5 +1,5 @@
 import {
-  ArrowDownToLine, BookOpen, CheckCheck, CircleSlash, Download, Heart, ListChecks, Pencil, RotateCcw, RotateCw, Share2, Trash2, X,
+  ArrowDownToLine, BookOpen, CheckCheck, CircleSlash, Download, FolderInput, Heart, ListChecks, Pencil, RotateCcw, RotateCw, Share2, Tags, Trash2, X,
 } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
@@ -10,12 +10,15 @@ import { formatBytes, useDownloads } from '../offline/downloads'
 import { offlineSupported } from '../offline/scope'
 import { Sheet, Switch, toast } from '../ui/primitives'
 import { changeState, deleteDocs, downloadForOffline, patchDoc, retryProcessing } from './actions'
+import { CollectionPicker } from './CollectionPicker'
 import { Cover } from './Cover'
 import { useLibrary } from './data'
 import { EditForm } from './EditForm'
+import { MovePicker } from './MovePicker'
+import { seriesPath } from './SeriesCard'
 import { useLibraryUi } from './uiStore'
 
-function Action({ icon, children, onClick, danger }: { icon: ReactNode; children: ReactNode; onClick: () => void; danger?: boolean }) {
+export function Action({ icon, children, onClick, danger }: { icon: ReactNode; children: ReactNode; onClick: () => void; danger?: boolean }) {
   return (
     <button type="button" className="action-row" data-danger={danger} onClick={onClick}>
       {icon}<span>{children}</span>
@@ -57,7 +60,7 @@ function Details({ doc }: { doc: Doc }) {
   return <dl className="book-facts">{rows.map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>
 }
 
-function SheetBody({ doc, onEdit }: { doc: Doc; onEdit: () => void }) {
+function SheetBody({ doc, onView }: { doc: Doc; onView: (view: View) => void }) {
   const session = useReadySession()
   const close = () => useLibraryUi.getState().openSheet(null)
   const { state } = doc
@@ -69,7 +72,11 @@ function SheetBody({ doc, onEdit }: { doc: Doc; onEdit: () => void }) {
       <div className="book-head">
         <span className="cover"><Cover doc={doc} eager /></span>
         <div>
-          {doc.series && <p className="book-series">{doc.series}{doc.volume !== null ? ` · Vol. ${doc.volume}` : ''}</p>}
+          {doc.series && (
+            <p className="book-series">
+              <Link to={seriesPath(doc.series)} viewTransition onClick={close}>{doc.series}</Link>{doc.volume !== null ? ` · Vol. ${doc.volume}` : ''}
+            </p>
+          )}
           <p className="book-title">{doc.title}</p>
           {doc.author && <p className="book-author">{doc.author}</p>}
           {doc.status === 'failed' && <p className="book-error">{doc.error ?? 'This file could not be processed.'}</p>}
@@ -97,7 +104,9 @@ function SheetBody({ doc, onEdit }: { doc: Doc; onEdit: () => void }) {
           {state.finished ? 'Mark as unread' : 'Mark as finished'}
         </Action>
         <OfflineAction doc={doc} />
-        {doc.editable && <Action icon={<Pencil size={20} />} onClick={onEdit}>Edit details</Action>}
+        {doc.editable && <Action icon={<FolderInput size={20} />} onClick={() => onView('move')}>Move to series</Action>}
+        <Action icon={<Tags size={20} />} onClick={() => onView('collections')}>Collections</Action>
+        {doc.editable && <Action icon={<Pencil size={20} />} onClick={() => onView('edit')}>Edit details</Action>}
         {canShare && (
           <div className="action-row">
             <Share2 size={20} aria-hidden="true" />
@@ -116,20 +125,25 @@ function SheetBody({ doc, onEdit }: { doc: Doc; onEdit: () => void }) {
   )
 }
 
+type View = 'details' | 'edit' | 'move' | 'collections'
+
+const TITLES: Record<View, string> = { details: 'Details', edit: 'Edit details', move: 'Move to series', collections: 'Collections' }
+
 /** Details and every per-book action. Long-press, right-click and the kebab all land here. */
 export function BookSheet() {
   const id = useLibraryUi((s) => s.sheetDocId)
   const openSheet = useLibraryUi((s) => s.openSheet)
   const { docs } = useLibrary()
-  const [editing, setEditing] = useState(false)
+  const [view, setView] = useState<View>('details')
   const doc = docs.find((d) => d.id === id)
   if (!doc) return null
-  const close = () => { setEditing(false); openSheet(null) }
+  const close = () => { setView('details'); openSheet(null) }
   return (
-    <Sheet title={editing ? 'Edit details' : 'Details'} onClose={close}>
-      {editing
-        ? <EditForm doc={doc} seriesNames={[...new Set(docs.flatMap((d) => d.series ?? []))]} onDone={() => setEditing(false)} />
-        : <SheetBody doc={doc} onEdit={() => setEditing(true)} />}
+    <Sheet title={TITLES[view]} onClose={close}>
+      {view === 'edit' && <EditForm doc={doc} seriesNames={[...new Set(docs.flatMap((d) => d.series ?? []))]} onDone={() => setView('details')} />}
+      {view === 'move' && <MovePicker docs={[doc]} onDone={() => setView('details')} />}
+      {view === 'collections' && <CollectionPicker ids={[doc.id]} />}
+      {view === 'details' && <SheetBody doc={doc} onView={setView} />}
     </Sheet>
   )
 }

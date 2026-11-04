@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { X } from 'lucide-react'
 import { api } from '../../api/client'
-import type { Bookmark, DocDetail } from '../../api/types'
+import type { Bookmark, DocDetail, OutlineItem } from '../../api/types'
 import { Segmented, Sheet } from '../../ui/primitives'
 import { Thumb } from '../chrome/Thumb'
 import type { PageRenderer } from '../pdf/renderer'
@@ -76,22 +76,25 @@ function PagesGrid({ doc, renderer, onJump }: { doc: DocDetail; renderer: PageRe
   )
 }
 
-export function ContentsPanel({ doc, renderer, bookmarks, onJump, onBookmark, onClose }: {
+export function ContentsPanel({ doc, chapters, renderer, bookmarks, onJump, onBookmark, onClose }: {
   doc: DocDetail
+  /** Headings found in the text: stands in for a PDF without an outline of its own. */
+  chapters: readonly OutlineItem[]
   renderer: PageRenderer | null
   bookmarks: readonly Bookmark[]
   onJump: (page: number) => void
   onBookmark: (b: Bookmark) => void
   onClose: () => void
 }) {
-  const [tab, setTab] = useState<Tab>(doc.outline.length ? 'outline' : 'pages')
+  const outline = doc.outline.length ? doc.outline : chapters
+  const [tab, setTab] = useState<Tab>(outline.length ? 'outline' : 'pages')
   const page = useReaderUi((s) => s.position.page)
   const [removed, setRemoved] = useState<number[]>([])
   const currentOutline = useMemo(() => {
     let index = -1
-    doc.outline.forEach((o, i) => { if (o.page <= page) index = i })
+    outline.forEach((o, i) => { if (o.page <= page) index = i })
     return index
-  }, [doc.outline, page])
+  }, [outline, page])
   const visible = bookmarks.filter((b) => !removed.includes(b.id))
 
   return (
@@ -101,9 +104,9 @@ export function ContentsPanel({ doc, renderer, bookmarks, onJump, onBookmark, on
           options={[{ value: 'outline', label: 'Outline' }, { value: 'pages', label: 'Pages' }, { value: 'bookmarks', label: 'Bookmarks' }]} />
       </div>
       {tab === 'outline' && (
-        doc.outline.length ? (
+        outline.length ? (
           <ol className="outline">
-            {doc.outline.map((o, i) => (
+            {outline.map((o, i) => (
               <li key={`${o.page}-${i}`}>
                 <button type="button" aria-current={i === currentOutline ? 'true' : undefined}
                   style={{ paddingLeft: 8 + Math.max(0, o.level - 1) * 16 }} onClick={() => onJump(o.page)}>

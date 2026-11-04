@@ -15,7 +15,7 @@ from app.config import Settings
 from app.db import Database
 from app.legacy import import_legacy
 from app.middleware import GuardMiddleware
-from app.routes import auth, documents, frontend, health, library, reading, search
+from app.routes import auth, collections, documents, frontend, health, library, reading, search
 from app.storage import clean_tmp
 from app.worker import IngestWorker
 
@@ -67,7 +67,7 @@ def create_app(settings: Settings | None = None, users_transport: httpx.AsyncBas
     app.add_exception_handler(Exception, unexpected_error)
     app.add_middleware(GuardMiddleware, trusted_origins=settings.trusted_origins)
 
-    for module in (health, auth, library, documents, reading, search):
+    for module in (health, auth, library, collections, documents, reading, search):
         app.include_router(module.router)
     app.include_router(frontend.router)  # catch-all, must stay last
     return app

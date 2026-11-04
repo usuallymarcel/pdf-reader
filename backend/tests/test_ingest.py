@@ -174,6 +174,161 @@ def test_furigana_is_dropped():
     assert 'かん' not in blocks[0]['text']
 
 
+# --- chapters, block paragraphs, split words --------------------------------------------------
+
+
+def typeset(number, rows, *, right=350):
+    """rows: (text, gap above, size, full). A full line reaches the right margin, as justified text does."""
+    page = Page(number=number)
+    y = 590.0
+    for text, gap, size, full in rows:
+        y -= gap
+        x1 = right if full else 50 + 4.8 * len(text)
+        page.lines.append(Line(text, 50, x1, y, size, 600 - y, y))
+    return page
+
+
+def body_rows(count=24, words='plain body text that fills the whole measure of the line and carries on'):
+    return [(f'{words} {index}', 14, 10, True) for index in range(count)]
+
+
+@pytest.mark.parametrize('size', [16.0, 10.0], ids=['larger', 'body-size'])
+def test_chapter_titles_are_not_running_heads(size):
+    """All at the same position, and all the same text once digits are masked."""
+    pages = [
+        typeset(n, ([(f'Chapter {n // 4}', 14, size, False)] if n % 4 == 0 else []) + body_rows())
+        for n in range(1, 41)
+    ]
+    blocks = build_reflow(pages).blocks
+    assert [b['text'] for b in blocks if b['t'] == 'h'] == [f'Chapter {n}' for n in range(1, 11)]
+
+
+def test_real_running_heads_still_go():
+    pages = [
+        typeset(n, [('The Long Road', 14, 9, False), ('Chapter 3', 30, 9, False)] + body_rows() + [(str(n), 30, 9, False)])
+        for n in range(1, 31)
+    ]
+    text = ' '.join(b['text'] for b in build_reflow(pages).blocks)
+    assert 'The Long Road' not in text and 'Chapter 3' not in text
+    assert 'plain body text' in text
+
+
+@pytest.mark.parametrize('head', ['Prologue {}', 'CHAPTER THREE | {}', 'Chapter 3 {}'])
+def test_running_head_with_its_page_number_is_no_chapter(head):
+    pages = [typeset(n, [(head.format(n), 14, 10, False)] + body_rows()) for n in range(1, 31)]
+    for page in pages:
+        page.lines[1].y -= 16  # stands apart from the text block
+    blocks = build_reflow(pages).blocks
+    assert [b for b in blocks if b['t'] == 'h'] == []
+    assert not any(head.split()[0] in b['text'] for b in blocks)
+
+
+def test_a_sentence_about_part_of_something_is_no_heading():
+    rows = body_rows(6) + [('Part of me wanted to go home.', 14, 10, False)] + body_rows(6)
+    assert all(b['t'] == 'p' for b in build_reflow([typeset(1, rows)]).blocks)
+
+
+def block_paragraph(tag):
+    """Three uneven lines, the way ragged-right text falls."""
+    return [
+        (f'The rain {tag} had not let up for days and', 24, 10, False),
+        (f'nobody in village {tag} could say when it began', 14, 10, False),
+        (f'or whether rain {tag} would ever end.', 14, 10, False),
+    ]
+
+
+def test_ragged_block_paragraphs_stay_whole():
+    """Word and EPUB exports: no indents, white space between paragraphs, uneven line ends."""
+    pages = [typeset(page, [row for n in 'uvwxyz' for row in block_paragraph(f'{"abc"[page - 1]}{n}')]) for page in (1, 2, 3)]
+    blocks = build_reflow(pages).blocks
+    assert len(blocks) == 18
+    assert all(b['text'].startswith('The rain') and b['text'].endswith('ever end.') for b in blocks)
+
+
+def test_block_paragraph_carries_over_a_page():
+    filler = [row for n in 'uvwxyz' for row in block_paragraph(n)]
+    pages = [
+        typeset(1, filler + [('this one is cut off by the end of the', 24, 10, False)]),
+        typeset(2, [('page and only finishes over here.', 14, 10, False)] + filler),
+    ]
+    assert 'this one is cut off by the end of the page and only finishes over here.' in [
+        b['text'] for b in build_reflow(pages).blocks
+    ]
+
+
+def test_indented_books_keep_their_paragraph_rules():
+    """A scene break is white space too, but it must not switch a book to gap-only paragraphs."""
+    page = Page(number=1)
+    y = 590.0
+    for index in range(30):
+        y -= 40 if index == 15 else 14
+        indent = 15 if index % 5 == 0 else 0
+        page.lines.append(Line(f'line {index} of the running text carries on', 50 + indent, 350, y, 10, 600 - y, y))
+    assert len(build_reflow([page]).blocks) == 6
+
+
+@pytest.mark.parametrize('head, tail, expected', [
+    ('home-', 'less', 'homeless'), ('restless-', 'ness', 'restlessness'), ('wrong-', 'fully', 'wrongfully'),
+    ('over-', 'take', 'overtake'), ('mother-', 'land', 'mother-land'),
+])
+def test_words_split_at_a_line_end(head, tail, expected):
+    vocabulary = Counter({
+        'home': 3, 'less': 3, 'restless': 2, 'ness': 1, 'wrong': 2, 'fully': 2, 'over': 3, 'take': 4, 'mother': 2, 'land': 2,
+    })
+    assert join(head, tail, vocabulary) == expected
+
+
+def vector_art_pdf(path):
+    from reportlab.lib.pagesizes import A5
+    from reportlab.pdfgen import canvas
+
+    pdf = canvas.Canvas(str(path), pagesize=A5)
+    width, height = A5
+    for page in range(3):
+        for row in range(30):
+            pdf.drawString(50, height - 60 - 15 * row, f'A line of ordinary body text in the book, number {page}-{row}.')
+        pdf.showPage()
+        if page == 0:
+            pdf.setFillGray(0.4)
+            pdf.rect(40, 80, width - 80, height - 160, fill=1, stroke=0)
+            pdf.showPage()
+        if page == 1:
+            pdf.line(100, 300, 300, 300)  # an ornament on an otherwise blank page
+            pdf.showPage()
+    pdf.save()
+    return path
+
+
+def test_white_backgrounds_are_not_illustrations(tmp_path):
+    from reportlab.lib.pagesizes import A5
+    from reportlab.pdfgen import canvas
+
+    width, height = A5
+    pdf = canvas.Canvas(str(tmp_path / 'paper.pdf'), pagesize=A5)
+    pdf.setFillGray(1)
+    pdf.rect(0, 0, width, height, fill=1, stroke=0)  # a blank page painted white
+    pdf.showPage()
+    pdf.setFillGray(0.5)
+    pdf.rect(40, 80, width - 80, height - 160, fill=1, stroke=0)
+    pdf.setFillGray(0)
+    pdf.setFont('Times-Roman', 22)
+    pdf.drawString(120, 300, 'Chapter 1')  # a title on a tinted panel keeps its words
+    pdf.showPage()
+    pdf.setFont('Times-Roman', 10)
+    for row in range(30):
+        pdf.drawString(50, height - 60 - 15 * row, f'A line of ordinary body text in the book, number {row}.')
+    pdf.showPage()
+    pdf.save()
+    _, blocks = ingested(tmp_path / 'paper.pdf', tmp_path)
+    assert [b for b in blocks if b['t'] == 'img'] == []
+    assert {'t': 'h', 'text': 'Chapter 1', 'page': 2} in blocks
+
+
+def test_drawn_illustration_page_becomes_image_block(tmp_path):
+    _, blocks = ingested(vector_art_pdf(tmp_path / 'vector.pdf'), tmp_path)
+    assert [b for b in blocks if b['t'] == 'img'] == [{'t': 'img', 'page': 2}]
+
+
 # --- images, rotation -------------------------------------------------------------------------
 
 

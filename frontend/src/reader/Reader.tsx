@@ -1,13 +1,14 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Loader2 } from 'lucide-react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { api, fileUrl } from '../api/client'
-import type { Bookmark, DocDetail, ReaderMode } from '../api/types'
+import { forgetPosition, saveProgress, unsentPosition } from '../offline/progress'
+import type { Bookmark, DocDetail } from '../api/types'
+import { resolveColors } from '../settings/colorways'
 import { deepMerge, DEFAULT_PREFERENCES, resolveProfile, type ReaderProfile } from '../settings/schema'
 import { usePreferences } from '../settings/store'
-import { toast } from '../ui/primitives'
+import { Boot, toast } from '../ui/primitives'
 import { BottomBar, CursorIdle, Indicator, TopBar } from './chrome/Bars'
 import { EndCard } from './chrome/EndCard'
 import { ShortcutsOverlay } from './chrome/ShortcutsOverlay'
@@ -16,7 +17,7 @@ import { toggleFullscreen, useThemeColor, useWakeLock } from './hooks/device'
 import { useProgress } from './hooks/useProgress'
 import { isTypingTarget, resolveKey, type KeyAction } from './input/keyboard'
 import { adjacentVolume, positionToAnchor, type Position } from './layout/position'
-import { BACKGROUNDS, effectiveMode, filterCss, nextMode, stripOverrides } from './look'
+import { effectiveMode, filterCss, nextView, stripOverrides, viewOf, viewPatch, type ReaderView } from './look'
 import { PagedStage } from './modes/PagedStage'
 import { buildBook, type ReflowStageApi } from './modes/reflowDom'
 import { ReflowPaged } from './modes/ReflowPaged'
@@ -32,6 +33,8 @@ import { PageRenderer } from './pdf/renderer'
 import { useReaderUi, type Panel } from './store'
 
 const OVERRIDE_SAVE_MS = 700
+const MIN_TEXT_SIZE = 12
+const MAX_TEXT_SIZE = 36
 
 declare global {
   interface Window { __shelf?: { renderer: PageRenderer | null; stage: () => ReaderStage | null; engine: PdfEngine | null } }
@@ -53,6 +56,7 @@ export function Reader({ doc }: { doc: DocDetail }) {
     [prefs, doc.kind, overrides, doc.direction],
   )
   const mode = effectiveMode(profile, doc)
+  const view = viewOf(mode, profile.reflow.layout)
   const stageKind = mode === 'reflow' ? `reflow-${profile.reflow.layout}` : mode
 
   const library = useQuery({ queryKey: ['library'], queryFn: api.library, staleTime: 60_000 })
@@ -93,10 +97,14 @@ export function Reader({ doc }: { doc: DocDetail }) {
   // A ?page= deep link (library search hit) opens there instead of the saved position.
   const [searchParams] = useSearchParams()
   const linkedPage = Number(searchParams.get('page'))
+  // Newer than the server's copy: the save made while leaving last time never arrived.
+  const [resumed] = useState(() => unsentPosition(doc))
   const posRef = useRef<Position>(
     Number.isInteger(linkedPage) && linkedPage >= 1 && linkedPage <= doc.page_count
       ? { page: linkedPage, offset: 0 }
-      : { page: Math.max(1, doc.state.page), offset: doc.state.offset },
+      : resumed
+        ? { page: Math.max(1, resumed.page), offset: resumed.offset ?? 0 }
+        : { page: Math.max(1, doc.state.page), offset: doc.state.offset },
   )
   const profileRef = useRef(profile)
   profileRef.current = profile
@@ -112,7 +120,12 @@ export function Reader({ doc }: { doc: DocDetail }) {
   }, [ui, doc.page_count])
 
   const jumpTo = useCallback((pos: Position) => stage.current?.goTo(pos), [])
-  const reportProgress = useProgress(doc, jumpTo)
+  const reportProgress = useProgress(doc, jumpTo, resumed)
+  useEffect(() => {
+    // Position only: its reading time may have arrived after all, or be queued already.
+    if (resumed) saveProgress(id, { ...resumed, seconds: 0 })
+    forgetPosition(id)
+  }, [id, resumed])
 
   const finishedSent = useRef(doc.state.finished)
   const haptics = prefs.haptics
@@ -193,7 +206,7 @@ export function Reader({ doc }: { doc: DocDetail }) {
   }, [reflowDoc.isError])
 
   useWakeLock(profile.keepAwake)
-  const background = BACKGROUNDS[profile.background]
+  const background = resolveColors(profile).bg
   useThemeColor(background)
 
   /* ---------- settings ---------- */
@@ -232,7 +245,21 @@ export function Reader({ doc }: { doc: DocDetail }) {
     }
   }, [scope, doc.kind, updatePrefs, persistOverrides])
 
-  const setMode = useCallback((m: ReaderMode) => setProfile({ mode: m }, true), [setProfile])
+  const setView = useCallback((v: ReaderView) => setProfile(viewPatch(v)), [setProfile])
+  const cycleView = useCallback(() => {
+    const p = profileRef.current
+    setProfile(viewPatch(nextView(viewOf(effectiveMode(p, doc), p.reflow.layout), doc.has_text)), true)
+  }, [setProfile, doc])
+
+  const textSize = useCallback((change: (size: number) => number) => {
+    const fontSize = change(profileRef.current.reflow.fontSize)
+    setProfile({ reflow: { fontSize: Math.max(MIN_TEXT_SIZE, Math.min(MAX_TEXT_SIZE, fontSize)) } })
+  }, [setProfile])
+
+  const chapters = useMemo(() => {
+    if (!book) return []
+    return book.blocks.flatMap((b) => (b.t === 'h' ? [{ title: b.text, page: b.page, level: 1 }] : []))
+  }, [book])
 
   /* ---------- bookmarks ---------- */
 
@@ -283,11 +310,11 @@ export function Reader({ doc }: { doc: DocDetail }) {
       case 'prev': s?.prev(); break
       case 'first': s?.goTo({ page: 1, offset: 0 }); break
       case 'last': s?.goToEnd(); break
-      case 'zoomIn': s?.zoomBy(1.25); break
-      case 'zoomOut': s?.zoomBy(0.8); break
-      case 'zoomReset': s?.zoomReset(); break
+      case 'zoomIn': if (isReflowStage(s)) textSize((v) => v + 1); else s?.zoomBy(1.25); break
+      case 'zoomOut': if (isReflowStage(s)) textSize((v) => v - 1); else s?.zoomBy(0.8); break
+      case 'zoomReset': if (isReflowStage(s)) textSize(() => DEFAULT_PREFERENCES.profiles[doc.kind].reflow.fontSize); else s?.zoomReset(); break
       case 'fullscreen': toggleFullscreen(); break
-      case 'cycleMode': setMode(nextMode(effectiveMode(profileRef.current, doc), doc.has_text)); break
+      case 'cycleMode': cycleView(); break
       case 'bookmark': toggleBookmark(); break
       case 'contents': togglePanel('contents'); break
       case 'settings': togglePanel('settings'); break
@@ -301,7 +328,7 @@ export function Reader({ doc }: { doc: DocDetail }) {
         else back()
         break
     }
-  }, [doc, setMode, toggleBookmark, togglePanel, prevVolume, nextVolume, navigate, back, ui])
+  }, [doc, cycleView, textSize, toggleBookmark, togglePanel, prevVolume, nextVolume, navigate, back, ui])
 
   const rtl = profile.direction === 'rtl'
   useEffect(() => {
@@ -331,7 +358,7 @@ export function Reader({ doc }: { doc: DocDetail }) {
       <div className="reader-filter" style={{ filter: filterCss(profile.filters) }}>
         <div key={stageKind} ref={stageEl} className="reader-stage" tabIndex={-1} role="application" aria-label={`${doc.title}, reader`} />
       </div>
-      {showBoot && <div className="reader-boot" role="status" aria-label="Loading text"><Loader2 className="reader-spin" size={24} /></div>}
+      {showBoot && <Boot label="Loading text" />}
       {createPortal(
         <EndCard doc={doc} next={nextVolume} background={background} onBack={back}
           onNext={() => { if (nextVolume) navigate(`/read/${nextVolume.id}`, { replace: true }) }} />,
@@ -341,12 +368,12 @@ export function Reader({ doc }: { doc: DocDetail }) {
       <CursorIdle />
       <TopBar doc={doc} bookmarks={bookmarks} onBack={back} onBookmark={toggleBookmark}
         onPanel={togglePanel} />
-      <BottomBar doc={doc} renderer={renderer} rtl={rtl && mode !== 'reflow'} mode={mode}
+      <BottomBar doc={doc} renderer={renderer} rtl={rtl && mode !== 'reflow'} view={view}
         onSeek={(page) => stage.current?.goTo({ page, offset: 0 })}
         onCycleMode={() => run('cycleMode')} />
       <TapHint layout={profile.tapLayout} rtl={rtl && mode !== 'reflow'} invert={profile.tapInvert} enabled={stageKind !== 'scroll' && stageKind !== 'reflow-scroll'} />
       {panel === 'contents' && (
-        <ContentsPanel doc={doc} renderer={renderer} bookmarks={bookmarks} onClose={closePanel}
+        <ContentsPanel doc={doc} chapters={chapters} renderer={renderer} bookmarks={bookmarks} onClose={closePanel}
           onJump={(page) => { stage.current?.goTo({ page, offset: 0 }); closePanel() }}
           onBookmark={(b) => { openBookmark(b); closePanel() }} />
       )}
@@ -355,8 +382,8 @@ export function Reader({ doc }: { doc: DocDetail }) {
           onJump={(page) => { stage.current?.goTo({ page, offset: 0 }); closePanel() }} />
       )}
       {panel === 'settings' && (
-        <SettingsPanel doc={doc} profile={profile as ReaderProfile} mode={mode} scope={scope} onScope={setScope}
-          onChange={setProfile} onMode={setMode} onReset={resetProfile} onClose={closePanel} />
+        <SettingsPanel doc={doc} profile={profile as ReaderProfile} view={view} scope={scope} onScope={setScope}
+          onChange={setProfile} onView={setView} onReset={resetProfile} onClose={closePanel} />
       )}
       {panel === 'shortcuts' && <ShortcutsOverlay onClose={closePanel} />}
     </div>

@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.auth import AuthContext, require_access
 from app.db import get_db, utcnow
 from app.models import Document, ReadingDay, ReadingState
-from app.queries import doc_fields, only_visible
+from app.queries import collection_ids_by_document, doc_fields, only_visible
 from app.schemas import DailySeconds, Doc, Stats
 
 router = APIRouter(prefix='/api', tags=['library'])
@@ -22,7 +22,8 @@ def library(auth: AuthContext = Depends(require_access), db: Session = Depends(g
         state.document_id: state
         for state in db.scalars(select(ReadingState).where(ReadingState.user_id == auth.scope))
     }
-    return [Doc(**doc_fields(doc, states.get(doc.id), auth)) for doc in documents]
+    collections = collection_ids_by_document(db, auth)
+    return [Doc(**doc_fields(doc, states.get(doc.id), auth, collections.get(doc.id))) for doc in documents]
 
 
 def _streak(days: set[str], today: date) -> int:

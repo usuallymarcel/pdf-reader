@@ -12,7 +12,7 @@ function CoverImage({ doc, eager }: { doc: Doc; eager: boolean }) {
   const [state, setState] = useState<'loading' | 'loaded' | 'missing'>(doc.cover_version ? 'loading' : 'missing')
   return (
     <>
-      {state !== 'loaded' && <span className="cover-fallback" aria-hidden="true">{state === 'missing' && doc.status !== 'processing' ? doc.title : ''}</span>}
+      {state !== 'loaded' && <span className="cover-fallback" aria-hidden="true">{state === 'missing' ? doc.title : ''}</span>}
       {doc.cover_version && state !== 'missing' && (
         <img
           key={doc.cover_version}

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react'
-import type { DocDetail } from '../../api/types'
-import { saveProgress } from '../../offline/progress'
+import type { DocDetail, ProgressUpdate } from '../../api/types'
+import { rememberPosition, saveProgress } from '../../offline/progress'
 import { toast } from '../../ui/primitives'
 import type { Position } from '../layout/position'
 
@@ -12,11 +12,11 @@ const SECONDS_FLUSH_EVERY = 30
  * Debounced progress saves, flushed with keepalive when the page hides. Counts active seconds: paused
  * while hidden or after two idle minutes. Also notices a newer position from another device.
  */
-export function useProgress(doc: DocDetail, onJump: (pos: Position) => void) {
+export function useProgress(doc: DocDetail, onJump: (pos: Position) => void, resumed: ProgressUpdate | null) {
   const pending = useRef<Position | null>(null)
-  const last = useRef<Position>({ page: doc.state.page, offset: doc.state.offset })
-  const lastTs = useRef(doc.state.client_ts)
-  const offered = useRef(doc.state.client_ts)
+  const last = useRef<Position>(resumed ? { page: resumed.page, offset: resumed.offset ?? 0 } : { page: doc.state.page, offset: doc.state.offset })
+  const lastTs = useRef(resumed?.client_ts ?? doc.state.client_ts)
+  const offered = useRef(resumed?.client_ts ?? doc.state.client_ts)
   const seconds = useRef(0)
   const lastActive = useRef(Date.now())
   const timer = useRef<number | undefined>(undefined)
@@ -31,7 +31,9 @@ export function useProgress(doc: DocDetail, onJump: (pos: Position) => void) {
     seconds.current = 0
     const client_ts = Date.now()
     lastTs.current = client_ts
-    saveProgress(id, { page: pos.page, offset: pos.offset, seconds: secs, client_ts }, keepalive)
+    const update = { page: pos.page, offset: pos.offset, seconds: secs, client_ts }
+    if (keepalive) rememberPosition(id, update)
+    saveProgress(id, update, keepalive)
   }, [id])
 
   const report = useCallback((pos: Position) => {

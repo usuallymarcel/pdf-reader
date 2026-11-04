@@ -4,7 +4,7 @@ from sqlalchemy import Select, or_, select
 from sqlalchemy.orm import Session
 
 from app.auth import AuthContext
-from app.models import Document, ReadingState
+from app.models import Collection, CollectionItem, Document, ReadingState
 from app.schemas import Doc, ReadingStateOut
 
 
@@ -27,7 +27,32 @@ def state_out(state: ReadingState | None) -> ReadingStateOut:
     return ReadingStateOut.model_validate(state) if state else ReadingStateOut()
 
 
-def doc_fields(doc: Document, state: ReadingState | None, auth: AuthContext) -> dict:
+def collection_ids(session: Session, auth: AuthContext, doc_id: str) -> list[int]:
+    return list(session.scalars(
+        select(CollectionItem.collection_id)
+        .join(Collection)
+        .where(CollectionItem.document_id == doc_id, Collection.user_id == auth.scope)
+        .order_by(CollectionItem.collection_id)
+    ))
+
+
+def collection_ids_by_document(session: Session, auth: AuthContext) -> dict[str, list[int]]:
+    """The caller's memberships for every document at once, for the library listing."""
+    members: dict[str, list[int]] = {}
+    rows = session.execute(
+        select(CollectionItem.document_id, CollectionItem.collection_id)
+        .join(Collection)
+        .where(Collection.user_id == auth.scope)
+        .order_by(CollectionItem.collection_id)
+    )
+    for doc_id, collection_id in rows:
+        members.setdefault(doc_id, []).append(collection_id)
+    return members
+
+
+def doc_fields(
+    doc: Document, state: ReadingState | None, auth: AuthContext, collections: list[int] | None = None
+) -> dict:
     return {
         'id': doc.id,
         'title': doc.title,
@@ -49,9 +74,10 @@ def doc_fields(doc: Document, state: ReadingState | None, auth: AuthContext) -> 
         'created_at': doc.created_at,
         'updated_at': doc.updated_at,
         'state': state_out(state),
+        'collections': collections or [],
     }
 
 
 def doc_out(session: Session, doc: Document, auth: AuthContext) -> Doc:
     state = session.get(ReadingState, (auth.scope, doc.id))
-    return Doc(**doc_fields(doc, state, auth))
+    return Doc(**doc_fields(doc, state, auth, collection_ids(session, auth, doc.id)))

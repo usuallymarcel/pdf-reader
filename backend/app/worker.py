@@ -2,6 +2,10 @@
 
 The queue is the database itself: every document with status 'processing'. That makes re-queueing
 on boot automatic, and notify() only has to wake the thread.
+
+Once that queue is empty, ready books whose text came from an older extractor are read again. They
+stay ready and readable meanwhile. A failure leaves them with the text they already had, and they
+are tried again after the next restart, since the cause may have been a full disk.
 """
 import gzip
 import json
@@ -14,14 +18,15 @@ import threading
 import time
 from pathlib import Path
 
-from sqlalchemy import delete, insert, select
+from sqlalchemy import delete, insert, select, update
 from sqlalchemy.orm import Session
 
 from app.config import Settings
 from app.db import Database
 from app.filename_parser import is_generic_name
 from app.ingest import EXIT_REFUSED
-from app.models import Document, PageText
+from app.models import Bookmark, Document, PageText
+from app.reflow import TEXT_VERSION
 from app.storage import derived_dir, sha256_file
 
 log = logging.getLogger(__name__)
@@ -54,6 +59,7 @@ class IngestWorker:
         self._lock = threading.Lock()
         self._current: str | None = None
         self._thread: threading.Thread | None = None
+        self._refresh_failed: set[str] = set()
 
     def start(self) -> None:
         self._thread = threading.Thread(target=self._loop, name='ingest', daemon=True)
@@ -91,6 +97,16 @@ class IngestWorker:
         with self.db.read() as session:
             return session.scalar(
                 select(Document.id).where(Document.status == 'processing').order_by(Document.created_at).limit(1)
+            ) or session.scalar(
+                select(Document.id)
+                .where(
+                    Document.status == 'ready',
+                    Document.has_text.is_(True),
+                    Document.text_version < TEXT_VERSION,
+                    Document.id.not_in(self._refresh_failed),
+                )
+                .order_by(Document.created_at)
+                .limit(1)
             )
 
     def _process(self, doc_id: str) -> None:
@@ -99,9 +115,10 @@ class IngestWorker:
             if doc is None:
                 return
             pdf = self.settings.pdf_dir / doc.stored_name
+            refresh = doc.status == 'ready'
 
         if not pdf.is_file():
-            self._fail(doc_id, 'The PDF file is missing from storage.')
+            self._give_up(doc_id, refresh, 'The PDF file is missing from storage.')
             return
 
         out = self.settings.tmp_dir / f'ingest-{doc_id}'
@@ -117,14 +134,14 @@ class IngestWorker:
             if outcome == 'cancelled':
                 return
             if outcome is not None:
-                self._fail(doc_id, outcome)
+                self._give_up(doc_id, refresh, outcome)
                 return
             try:
-                self._publish(doc_id, pdf, out)
+                self._publish(doc_id, pdf, out, refresh)
             except (OSError, ValueError, KeyError, TypeError):
                 # Otherwise the document would stay queued and be retried forever.
                 log.exception('could not publish ingest result of %s', doc_id)
-                self._fail(doc_id, 'Processing crashed on this PDF.')
+                self._give_up(doc_id, refresh, 'Processing crashed on this PDF.')
         finally:
             with self._lock:
                 self._current = None
@@ -188,6 +205,13 @@ class IngestWorker:
         log.warning('ingest of %s exited with %s', pdf.name, process.returncode)
         return 'Processing crashed on this PDF.'
 
+    def _give_up(self, doc_id: str, refresh: bool, message: str) -> None:
+        if not refresh:
+            self._fail(doc_id, message)
+            return
+        log.warning('could not refresh the text of %s: %s', doc_id, message)
+        self._refresh_failed.add(doc_id)
+
     def _fail(self, doc_id: str, message: str) -> None:
         with self.db.write() as session:
             doc = session.get(Document, doc_id)
@@ -213,7 +237,7 @@ class IngestWorker:
         )
         return None if clash else sha
 
-    def _publish(self, doc_id: str, pdf: Path, out: Path) -> None:
+    def _publish(self, doc_id: str, pdf: Path, out: Path, refresh: bool = False) -> None:
         meta = json.loads((out / 'meta.json').read_text(encoding='utf-8'))
         with gzip.open(out / 'pages.json.gz', 'rt', encoding='utf-8') as handle:
             page_texts = json.load(handle)
@@ -245,9 +269,14 @@ class IngestWorker:
                 doc.author = meta['author']
             if doc.sha256 is None:
                 doc.sha256 = self._unique_sha(session, doc, pdf)
-            doc.cover_version = f'{time.time_ns() // 1_000_000:x}' if meta['has_cover'] else None
-            doc.status = 'ready'
-            doc.error = None
+            doc.text_version = TEXT_VERSION
+            if refresh:
+                # Bookmarks hold their place by block number, and the blocks just changed.
+                session.execute(update(Bookmark).where(Bookmark.document_id == doc_id).values(locator=None))
+            else:
+                doc.cover_version = f'{time.time_ns() // 1_000_000:x}' if meta['has_cover'] else None
+                doc.status = 'ready'
+                doc.error = None
             session.execute(delete(PageText).where(PageText.document_id == doc_id))
             if page_texts:
                 session.execute(insert(PageText), [

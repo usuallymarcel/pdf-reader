@@ -1,14 +1,17 @@
-import { ListChecks, Search, X } from 'lucide-react'
-import { useEffect, useMemo, useRef } from 'react'
+import { ListChecks, Search, Tags, X } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useOnline } from '../app/session'
 import { useDownloads } from '../offline/downloads'
 import { usePreferences } from '../settings/store'
+import { Sheet } from '../ui/primitives'
 import { BookSheet } from './BookSheet'
+import { CollectionPicker } from './CollectionPicker'
 import { ContinueShelf } from './ContinueShelf'
-import { continueReading, matchesFilter, matchesQuery, sortItems, toShelfItems, useLibrary } from './data'
+import { collectionFilter, continueReading, matchesFilter, matchesQuery, sortItems, toShelfItems, useCollections, useLibrary } from './data'
 import { InsideSearch } from './InsideSearch'
 import { EmptyLibrary, InstallHint, OfflineBanner } from './Notices'
 import { SelectionBar } from './SelectionBar'
+import { SeriesSheet } from './SeriesSheet'
 import { GridSkeleton, ShelfGrid } from './ShelfGrid'
 import { useLibraryUi, type LibraryFilter, type LibrarySort } from './uiStore'
 
@@ -46,6 +49,8 @@ function useSlashToSearch(input: React.RefObject<HTMLInputElement | null>) {
 
 export function LibraryPage() {
   const { docs, isPending, isError, fetchStatus, refetch } = useLibrary()
+  const collections = useCollections()
+  const [managing, setManaging] = useState(false)
   const { sort, filter, query, selected, setSort, setFilter, setQuery, startSelecting, stopSelecting } = useLibraryUi()
   const groupSeries = usePreferences((s) => s.prefs.groupSeries)
   const downloaded = useDownloads((s) => s.books)
@@ -59,6 +64,12 @@ export function LibraryPage() {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [selected, stopSelecting])
+
+  // A remembered collection may be gone, deleted from another device.
+  useEffect(() => {
+    const list = collections.data
+    if (list && filter.startsWith('collection:') && !list.some((c) => collectionFilter(c.id) === filter)) setFilter('all')
+  }, [collections.data, filter, setFilter])
 
   const searching = query.trim().length > 0
   const items = useMemo(() => {
@@ -104,10 +115,16 @@ export function LibraryPage() {
       )}
 
       {online && !libraryIsEmpty && !searching && (
-        <div className="chips" role="radiogroup" aria-label="Filter">
-          {FILTERS.map((f) => (
-            <button key={f.value} type="button" role="radio" aria-checked={filter === f.value} onClick={() => setFilter(f.value)}>{f.label}</button>
-          ))}
+        <div className="chips">
+          <div className="chips-group" role="radiogroup" aria-label="Filter">
+            {FILTERS.map((f) => (
+              <button key={f.value} type="button" role="radio" aria-checked={filter === f.value} onClick={() => setFilter(f.value)}>{f.label}</button>
+            ))}
+            {collections.data?.map((c) => (
+              <button key={c.id} type="button" role="radio" aria-checked={filter === collectionFilter(c.id)} onClick={() => setFilter(collectionFilter(c.id))}>{c.name}</button>
+            ))}
+          </div>
+          <button type="button" className="chip-manage" onClick={() => setManaging(true)}><Tags size={15} aria-hidden="true" /> Collections</button>
         </div>
       )}
 
@@ -143,7 +160,9 @@ export function LibraryPage() {
       {searching && online && <InsideSearch query={query} />}
 
       <BookSheet />
+      <SeriesSheet />
       <SelectionBar />
+      {managing && <Sheet title="Collections" onClose={() => setManaging(false)}><CollectionPicker /></Sheet>}
     </div>
   )
 }

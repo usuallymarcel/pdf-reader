@@ -1,9 +1,5 @@
 import type { Doc, ReaderMode } from '../api/types'
-import type { PageBackground, PageFilters, ReaderProfile } from '../settings/schema'
-
-export const BACKGROUNDS: Record<PageBackground, string> = {
-  black: '#000000', dark: '#15161a', gray: '#2c2d31', white: '#ffffff', sepia: '#f3ead9',
-}
+import type { PageFilters, ReaderProfile, ReflowLayout } from '../settings/schema'
 
 /** The page look as a CSS filter: cheap, and needs no re-render. */
 export function filterCss(f: PageFilters): string {
@@ -21,10 +17,28 @@ export function effectiveMode(profile: ReaderProfile, doc: Pick<Doc, 'suggested_
   return mode === 'reflow' && !doc.has_text ? 'paged' : mode
 }
 
-export const nextMode = (mode: ReaderMode, hasText: boolean): ReaderMode => {
-  if (mode === 'paged') return 'scroll'
-  if (mode === 'scroll') return hasText ? 'reflow' : 'paged'
-  return 'paged'
+/** What the reader shows: the original pages or the text, each either paged or continuous. */
+export type ReaderView = 'paged' | 'scroll' | 'text-paged' | 'text-scroll'
+
+export const viewOf = (mode: ReaderMode, layout: ReflowLayout): ReaderView =>
+  (mode === 'reflow' ? `text-${layout}` : mode)
+
+export const viewPatch = (view: ReaderView): Record<string, unknown> => {
+  if (view === 'paged' || view === 'scroll') return { mode: view }
+  return { mode: 'reflow', reflow: { layout: view === 'text-scroll' ? 'scroll' : 'paged' } }
+}
+
+export const isTextView = (view: ReaderView) => view === 'text-paged' || view === 'text-scroll'
+export const isContinuous = (view: ReaderView) => view === 'scroll' || view === 'text-scroll'
+
+export const makeView = (text: boolean, continuous: boolean): ReaderView =>
+  (text ? (continuous ? 'text-scroll' : 'text-paged') : (continuous ? 'scroll' : 'paged'))
+
+const ORDER: readonly ReaderView[] = ['paged', 'scroll', 'text-paged', 'text-scroll']
+
+export const nextView = (view: ReaderView, hasText: boolean): ReaderView => {
+  const views = hasText ? ORDER : ORDER.slice(0, 2)
+  return views[(views.indexOf(view) + 1) % views.length] ?? 'paged'
 }
 
 const ENTITIES: Record<string, string> = { '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&#39;': "'", '&#x27;': "'" }

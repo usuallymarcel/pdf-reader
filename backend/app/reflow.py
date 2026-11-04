@@ -19,16 +19,26 @@ SOFT_HYPHEN = '\xad'
 LIGATURES = {'ﬀ': 'ff', 'ﬁ': 'fi', 'ﬂ': 'fl', 'ﬃ': 'ffi', 'ﬄ': 'ffl', 'ﬅ': 'st', 'ﬆ': 'st'}
 SENTENCE_END = tuple('.!?…。！？」』”’"\'»)）】')
 OPENING_QUOTES = ('“', '‘', '"', "'", '「', '『', '«')
+PARAGRAPH_GAP = 1.25  # in line heights: more than this between lines is white space, not leading
+# Raise when extraction improves: books processed by an older version get re-read in the background.
+TEXT_VERSION = 2
 
 PAGE_NUMBER = re.compile(
     r'^[\s\-–—·•.(\[]*(?:(?:page|p\.?)\s*)?(?:\d{1,4}|[ivxlc]{1,7})(?:\s*(?:/|of)\s*\d{1,4})?[\s\-–—·•.)\]]*$', re.I
 )
+_COUNT = r'(?:\d{1,4}|[ivxlc]{1,7}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)'
+# "Part of me wanted to go home." is a sentence, so numbered words need their number.
 CHAPTER = re.compile(
-    r'^(?:(?:chapter|prologue|epilogue|interlude|afterword|foreword|preface|part|volume)\b.{0,50}'
+    rf'^(?:(?:chapter|part|volume|letter|episode|act|book)\s+{_COUNT}\b.{{0,50}}'
+    r'|(?:prologue|epilogue|interlude|intermission|afterword|foreword|preface|side story)\b.{0,50}'
     r'|第[0-9０-９一二三四五六七八九十百千]{1,6}[章話话節节巻幕部]\s*.{0,30}'
     r'|序章|終章|あとがき)$',
     re.I,
 )
+NUMBERED_CHAPTER = re.compile(rf'^(?:chapter|part|volume|letter|episode|act|book)\s+{_COUNT}$', re.I)
+# Second halves of split words that also happen to be words: `home-less` is not a compound.
+WORD_ENDINGS = frozenset({'able', 'fully', 'less', 'ness', 'ment', 'ship', 'some', 'tion', 'ward', 'wards', 'wise'})
+WORD_STARTS = frozenset({'fore', 'over', 'under', 'with'})
 
 
 @dataclass(slots=True)
@@ -68,6 +78,8 @@ class Metrics:
     leading: float
     # Books marking paragraphs by first-line indent, as opposed to by nothing at all.
     uses_indents: bool = True
+    # Books marking paragraphs by a blank space between them, as Word and EPUB exports do.
+    uses_gaps: bool = False
 
 
 @dataclass
@@ -286,6 +298,17 @@ def strip_furniture(pages: list[Page], size: float, leading: float) -> None:
     if not text_pages:
         return
     repeats: Counter = Counter()
+    wording = Counter(line.text.strip().lower() for page in text_pages for line in page.lines)
+
+    def opens_chapter(line: Line) -> bool:
+        """`Chapter 3` repeats once digits are masked, but only a running head repeats word for word.
+        A head that carries its page number is unique on every page too, hence the digit check."""
+        text = line.text.strip()
+        if wording[text.lower()] > 1 or not any(c.isalpha() for c in text):
+            return False
+        if line.size >= 1.15 * size:
+            return True
+        return bool(NUMBERED_CHAPTER.match(text) or (CHAPTER.match(text) and not re.search(r'\d', text)))
 
     def margin_lines(page: Page):
         count = len(page.lines)
@@ -318,6 +341,8 @@ def strip_furniture(pages: list[Page], size: float, leading: float) -> None:
     for page in text_pages:
         for zone, index in margin_lines(page):
             line = page.lines[index]
+            if opens_chapter(line):
+                continue
             position = distance(page, zone, index)
             times = count_of(zone, _mask(line.text), position)
             if times >= frequent or (times >= minimum and _detached(page, index, leading)):
@@ -328,6 +353,8 @@ def strip_furniture(pages: list[Page], size: float, leading: float) -> None:
     for page in text_pages:
         for zone, index in margin_lines(page):
             line = page.lines[index]
+            if opens_chapter(line):
+                continue
             position = distance(page, zone, index)
             in_band = any(abs(position - p) <= 2 for p in bands[zone][:200])
             looks_numeric = PAGE_NUMBER.match(line.text) and line.size <= 1.15 * size
@@ -390,6 +417,8 @@ def _keeps_hyphen(head: str, tail: str, vocabulary: Counter) -> bool:
         return False
     if vocabulary[compound]:
         return True
+    if tail.lower() in WORD_ENDINGS or head.lower() in WORD_STARTS:
+        return False
     return len(head) >= 4 and len(tail) >= 4 and bool(vocabulary[head.lower()]) and bool(vocabulary[tail.lower()])
 
 
@@ -436,10 +465,12 @@ def _splits(a: Line, b: Line, box: PageBox, metrics: Metrics) -> bool:
     em = metrics.size
     scale = max(a.size / em, 1.0)
     gap = a.y - b.y
-    if gap <= 0 or gap > 1.5 * metrics.leading * scale:
+    if gap <= 0 or gap > (PARAGRAPH_GAP if metrics.uses_gaps else 1.5) * metrics.leading * scale:
         return True
     if abs(a.size - b.size) > 0.15 * em:
         return True
+    if metrics.uses_gaps:
+        return False  # a ragged line ending short means nothing here: only the gap ends a paragraph
     if not metrics.uses_indents and a.text.endswith(SENTENCE_END) and b.text[0] in OPENING_QUOTES:
         return True  # nothing else separates dialogue when lines happen to fill the measure
 
@@ -458,6 +489,8 @@ def _splits(a: Line, b: Line, box: PageBox, metrics: Metrics) -> bool:
 def _continues_on_next_page(a: Line, b: Line, box_a: PageBox, box_b: PageBox, metrics: Metrics) -> bool:
     if abs(a.size - b.size) > 0.15 * metrics.size or b.x0 - box_b.left > 0.4 * metrics.size:
         return False
+    if metrics.uses_gaps:
+        return b.text[0].islower() or not a.text.endswith(SENTENCE_END)
     if not metrics.uses_indents and a.text.endswith(SENTENCE_END) and b.text[0] in OPENING_QUOTES:
         return False
     return not _ended_early(a, b, box_a.right)
@@ -472,19 +505,31 @@ def is_heading(line: Line, metrics: Metrics) -> bool:
     return len(text) <= 60 and bool(CHAPTER.match(text)) and text[-1] not in ',;:'
 
 
-def _uses_indents(pages: list[Page], boxes: dict[int, PageBox], size: float) -> bool:
+def _indented_lines(pages: list[Page], boxes: dict[int, PageBox], size: float) -> tuple[int, int]:
     lines = indented = 0
     for page in pages:
         box = boxes.get(page.number)
         for line in page.lines if box else ():
             lines += 1
             indented += 0.4 * size < line.x0 - box.left < 4 * size
-    return indented >= 0.03 * lines
+    return indented, lines
+
+
+def _gapped_lines(pages: list[Page], metrics: Metrics) -> int:
+    return sum(
+        PARAGRAPH_GAP * metrics.leading < a.y - b.y <= 4 * metrics.leading
+        for page in pages
+        for a, b in zip(page.lines, page.lines[1:])
+        if _is_body(a, metrics.size) and _is_body(b, metrics.size)
+    )
 
 
 def blocks_from_pages(pages: list[Page], metrics: Metrics, vocabulary: Counter) -> list[dict]:
     boxes = _page_boxes(pages, metrics.size)
-    metrics.uses_indents = _uses_indents(pages, boxes, metrics.size)
+    indented, lines = _indented_lines(pages, boxes, metrics.size)
+    gapped = _gapped_lines(pages, metrics)
+    metrics.uses_indents = indented >= 0.03 * lines
+    metrics.uses_gaps = gapped >= 0.03 * lines and gapped >= indented
     blocks: list[dict] = []
     current: dict | None = None
     previous: Line | None = None

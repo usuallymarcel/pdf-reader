@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { useMemo } from 'react'
 import { ApiError, api } from '../api/client'
-import type { Doc } from '../api/types'
+import type { Collection, Doc } from '../api/types'
 import { queryClient } from '../app/queryClient'
 import { useOnline, useSession } from '../app/session'
 import { downloadedDocs, useDownloads } from '../offline/downloads'
@@ -43,6 +43,21 @@ export function useLibrary() {
   return { ...query, docs }
 }
 
+export const COLLECTIONS_KEY = ['collections'] as const
+
+export function useCollections() {
+  const { data: session } = useSession()
+  return useQuery<Collection[]>({
+    queryKey: COLLECTIONS_KEY,
+    queryFn: api.collections,
+    enabled: !!session && (session.mode === 'global' || !!session.user),
+  })
+}
+
+export const inCollection = (doc: Doc, id: number) => doc.collections?.includes(id) ?? false
+
+export const collectionFilter = (id: number) => `collection:${id}` as const
+
 export function updateDocInCache(id: string, change: (doc: Doc) => Doc) {
   queryClient.setQueryData<Doc[]>(LIBRARY_KEY, (docs) => docs?.map((d) => (d.id === id ? change(d) : d)))
 }
@@ -71,6 +86,7 @@ export function continueReading(docs: Doc[], limit = 12) {
 }
 
 export function matchesFilter(doc: Doc, filter: LibraryFilter, downloaded: Record<string, unknown>) {
+  if (filter.startsWith('collection:')) return inCollection(doc, Number(filter.slice('collection:'.length)))
   switch (filter) {
     case 'all': return true
     case 'reading': return isReading(doc)
@@ -80,6 +96,7 @@ export function matchesFilter(doc: Doc, filter: LibraryFilter, downloaded: Recor
     case 'manga': return doc.kind === 'manga'
     case 'novels': return doc.kind === 'novel'
     case 'downloaded': return !!downloaded[doc.id]
+    default: return true
   }
 }
 

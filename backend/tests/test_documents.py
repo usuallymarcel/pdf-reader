@@ -37,7 +37,7 @@ def test_upload_contract(open_mode, tmp_path):
     assert set(document) == {
         'id', 'title', 'series', 'volume', 'author', 'kind', 'direction', 'suggested_mode', 'filename', 'size',
         'page_count', 'has_text', 'status', 'error', 'cover_version', 'shared', 'editable', 'created_at',
-        'updated_at', 'state',
+        'updated_at', 'state', 'collections',
     }
     assert set(document['state']) == {
         'page', 'offset', 'max_page', 'finished', 'favorite', 'seconds_read', 'overrides', 'last_read_at', 'client_ts',

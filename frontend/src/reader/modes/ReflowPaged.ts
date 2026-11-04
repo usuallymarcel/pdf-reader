@@ -1,3 +1,4 @@
+import { resolveColors } from '../../settings/colorways'
 import type { ReaderProfile } from '../../settings/schema'
 import { GestureRecognizer } from '../input/gestures'
 import { reducedMotion, runSpring } from '../input/spring'
@@ -93,7 +94,7 @@ export class ReflowPaged implements ReflowStageApi {
   /** Full layout pass, holding the anchor. */
   private repaginate(anchor: Anchor) {
     const p = this.profile
-    applyTypography(this.root, p.reflow, p.background, this.book.lang)
+    applyTypography(this.root, p.reflow, resolveColors(p), this.book.lang)
     this.key = typographyKey(p.reflow)
     const cs = getComputedStyle(this.root)
     const vw = this.root.clientWidth
@@ -370,7 +371,7 @@ export class ReflowPaged implements ReflowStageApi {
   update(profile: ReaderProfile) {
     const prev = this.profile
     this.profile = profile
-    if (prev.background !== profile.background) applyTypography(this.root, profile.reflow, profile.background, this.book.lang)
+    applyTypography(this.root, profile.reflow, resolveColors(profile), this.book.lang)
     if (typographyKey(profile.reflow) === this.key) return
     const a = this.anchor()
     this.repaginate(a)
@@ -399,13 +400,8 @@ export class ReflowPaged implements ReflowStageApi {
 
   position(): Position { return anchorToPosition(this.book.index, this.cachedAnchor) }
 
-  zoomBy(factor: number) {
-    const size = Math.max(12, Math.min(36, Math.round(this.profile.reflow.fontSize * (factor > 1 ? 1.1 : 0.9))))
-    this.profile = { ...this.profile, reflow: { ...this.profile.reflow, fontSize: size } }
-    this.repaginate(this.anchor())
-  }
-
-  zoomReset() { /* type size is a setting, not a view state */ }
+  zoomBy() { /* type size is a setting: the reader changes it */ }
+  zoomReset() { /* type size is a setting: the reader changes it */ }
 
   destroy() {
     this.destroyed = true

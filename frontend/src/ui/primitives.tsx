@@ -47,6 +47,21 @@ export function Slider({ label, value, min, max, step, onChange, format }: {
   )
 }
 
+export function ColorField({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+  return (
+    <label className="color-field">
+      <span className="color-chip" style={{ background: value }} />
+      {label}
+      <input type="color" value={value} onChange={(e) => onChange(e.target.value)} />
+    </label>
+  )
+}
+
+export const Spinner = () => <span className="spinner" aria-hidden="true" />
+
+/** Full-screen stand-in while a book opens. Blank for a moment, so a quick open has no flash. */
+export const Boot = ({ label }: { label: string }) => <div className="reader-boot" role="status" aria-label={label}><Spinner /></div>
+
 /** Bottom sheet on phones (drag grip down to dismiss), side drawer on wide screens. */
 export function Sheet({ title, onClose, children, actions, modal = true }: {
   title: ReactNode

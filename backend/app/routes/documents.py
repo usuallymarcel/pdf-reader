@@ -16,8 +16,8 @@ from app.config import Settings
 from app.db import Database, get_db, get_write_db, utcnow
 from app.filename_parser import parse_filename
 from app.models import Bookmark, Document, ReadingState
-from app.queries import doc_fields, doc_out, only_visible, visible_document
-from app.schemas import BookmarkOut, Doc, DocDetail, DocPatch, UploadResult
+from app.queries import collection_ids, doc_fields, doc_out, only_visible, visible_document
+from app.schemas import BookmarkOut, BulkPatch, Doc, DocDetail, DocPatch, UploadResult
 from app.storage import ReceivedUpload, UploadRejected, derived_dir, new_id, receive_upload, remove_document_files
 
 log = logging.getLogger(__name__)
@@ -90,6 +90,31 @@ async def upload_document(request: Request, auth: AuthContext = Depends(require_
     return JSONResponse(result.model_dump(mode='json'), status_code=200 if duplicate else 201)
 
 
+def _apply_changes(doc: Document, changes: dict) -> None:
+    for name, value in changes.items():
+        setattr(doc, name, value)
+    doc.edited_fields = sorted(set(doc.edited_fields or ()) | set(changes) - {'direction'})
+    doc.updated_at = utcnow()
+
+
+@router.post('/bulk-update')
+def bulk_update(
+    patch: BulkPatch,
+    auth: AuthContext = Depends(require_access),
+    db: Session = Depends(get_write_db),
+) -> list[Doc]:
+    """All or nothing, so a rename cannot leave a series split in two."""
+    ids = set(patch.ids)
+    documents = db.scalars(only_visible(select(Document).where(Document.id.in_(ids)), auth)).all()
+    if len(documents) != len(ids):
+        raise HTTPException(404, 'Document not found.')
+    changes = patch.changes.model_dump(exclude_unset=True)
+    for doc in documents:
+        _apply_changes(doc, changes)
+    db.commit()
+    return [doc_out(db, doc, auth) for doc in documents]
+
+
 @router.get('/{doc_id}')
 def get_document(doc_id: str, auth: AuthContext = Depends(require_access), db: Session = Depends(get_db)) -> DocDetail:
     doc = visible_document(db, auth, doc_id)
@@ -100,7 +125,7 @@ def get_document(doc_id: str, auth: AuthContext = Depends(require_access), db: S
     ).all()
     state = db.get(ReadingState, (auth.scope, doc_id))
     return DocDetail(
-        **doc_fields(doc, state, auth),
+        **doc_fields(doc, state, auth, collection_ids(db, auth, doc_id)),
         page_sizes=[tuple(size) for size in doc.page_sizes],
         outline=doc.outline,
         bookmarks=[BookmarkOut.model_validate(bookmark) for bookmark in bookmarks],
@@ -123,10 +148,7 @@ def patch_document(
         if shared and doc.owner_id is not None:
             doc.owner_id = None
 
-    for name, value in changes.items():
-        setattr(doc, name, value)
-    doc.edited_fields = sorted(set(doc.edited_fields or ()) | set(changes) - {'direction'})
-    doc.updated_at = utcnow()
+    _apply_changes(doc, changes)
     try:
         db.commit()
     except IntegrityError:
@@ -234,7 +256,7 @@ def get_text(
 ) -> Response:
     doc = visible_document(db, auth, doc_id)
     path = derived_dir(request.app.state.settings, doc_id) / 'reflow.json.gz'
-    has_text, version = doc.has_text, doc.cover_version or doc.updated_at.isoformat()
+    has_text, version = doc.has_text, f'{doc.cover_version or doc.updated_at.isoformat()}-{doc.text_version}'
     db.close()
     if not has_text or not path.is_file():
         raise HTTPException(404, 'This document has no text.')

@@ -62,6 +62,8 @@ export interface Doc {
   created_at: string
   updated_at: string
   state: ReadingState
+  /** ids of the caller's collections holding this book. Absent on copies downloaded by an older version. */
+  collections?: number[]
 }
 
 export interface OutlineItem {
@@ -96,6 +98,18 @@ export interface DocPatch {
   direction?: Direction | null
   /** owner only, scoped mode; true clears owner */
   shared?: boolean
+}
+
+/** What a group of books can share. Fields left out stay as they are. */
+export interface BulkChanges {
+  series?: string | null
+  author?: string | null
+  kind?: DocKind
+}
+
+export interface Collection {
+  id: number
+  name: string
 }
 
 export interface ProgressUpdate {

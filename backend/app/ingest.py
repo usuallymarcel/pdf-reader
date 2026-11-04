@@ -39,6 +39,9 @@ IMAGE_PAGE_CHARS = 40  # below this, any bitmap makes it an illustration page
 FULL_IMAGE_COVERAGE = 0.8
 # A full-page image with this much text on it is a scan with an OCR layer, not an illustration.
 OCR_PAGE_CHARS = 200
+# Drawn art has no bitmap. On a page without text, a shape this large is more than a rule or ornament.
+MIN_ART_COVERAGE = 0.15
+WHITE_FILL = 245
 
 JUNK_METADATA = re.compile(
     r'^(?:untitled|unknown|anonymous|none|null|microsoft word\b.*|.*\.(?:docx?|indd|pdf|qxd|tex|odt))$', re.I
@@ -96,6 +99,26 @@ def has_image(page, full_page_only: bool, area: float) -> bool:
     return False
 
 
+def is_blank_fill(obj) -> bool:
+    """A white rectangle behind a page is paper, not art."""
+    r, g, b, a = (ctypes.c_uint() for _ in range(4))
+    if not pdfium_c.FPDFPageObj_GetFillColor(obj.raw, r, g, b, a):
+        return False
+    return a.value == 0 or min(r.value, g.value, b.value) >= WHITE_FILL
+
+
+def has_drawing(page, area: float) -> bool:
+    """Whether a page with no text at all has vector art big enough to be an illustration."""
+    kinds = (pdfium_c.FPDF_PAGEOBJ_PATH, pdfium_c.FPDF_PAGEOBJ_SHADING)
+    for index, obj in enumerate(page.get_objects(filter=kinds, max_depth=3)):
+        if index >= MAX_IMAGE_OBJECTS:
+            break
+        left, bottom, right, top = obj.get_bounds()
+        if (right - left) * (top - bottom) >= MIN_ART_COVERAGE * area and not is_blank_fill(obj):
+            return True
+    return False
+
+
 def read_page(document, index: int) -> tuple[Page, tuple[float, float]]:
     page = document[index]
     try:
@@ -112,8 +135,10 @@ def read_page(document, index: int) -> tuple[Page, tuple[float, float]]:
         result.lines = lines_from_glyphs(glyphs, *frame)
         result.chars = sum(1 for g in glyphs if not g.char.isspace())
         area = width * height
-        result.is_image = (result.chars < IMAGE_PAGE_CHARS and has_image(page, False, area)) or (
-            result.chars < OCR_PAGE_CHARS and has_image(page, True, area)
+        result.is_image = (
+            (result.chars < IMAGE_PAGE_CHARS and has_image(page, False, area))
+            or (result.chars == 0 and has_drawing(page, area))
+            or (result.chars < OCR_PAGE_CHARS and has_image(page, True, area))
         )
         return result, (round(width, 2), round(height, 2))
     finally:

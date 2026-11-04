@@ -3,20 +3,16 @@ import { useEffect, useState, type ReactNode } from 'react'
 import type { AuthStatus, Direction, DocKind } from '../api/types'
 import { formatBytes, storageEstimate, useDownloads } from '../offline/downloads'
 import { offlineSupported } from '../offline/scope'
-import type { Fit, PageBackground, Preferences, ReaderProfile, Spreads, TapLayout, Theme } from '../settings/schema'
+import { ColorwayPicker } from '../settings/ColorwayPicker'
+import type { Corners, Fit, Preferences, ReaderProfile, ReflowLayout, Spreads, TapLayout, Theme } from '../settings/schema'
 import { usePreferences } from '../settings/store'
-import { Segmented, Switch, toast } from '../ui/primitives'
+import { ColorField, Segmented, Switch, toast } from '../ui/primitives'
 import { useLogout, useOnline, useReadySession } from './session'
+import { THEMES, usableColors } from './theme'
 
 declare const __APP_VERSION__: string
 
-const THEMES: { value: Theme; label: string; bg: string; fg: string }[] = [
-  { value: 'system', label: 'System', bg: 'linear-gradient(135deg, #f6f6f7 50%, #0b0c0e 50%)', fg: 'transparent' },
-  { value: 'dark', label: 'Dark', bg: '#0b0c0e', fg: '#f1f2f4' },
-  { value: 'oled', label: 'Black', bg: '#000000', fg: '#f1f2f4' },
-  { value: 'light', label: 'Light', bg: '#f6f6f7', fg: '#16171a' },
-  { value: 'sepia', label: 'Sepia', bg: '#f3ead9', fg: '#3b2e1e' },
-]
+const CORNERS: readonly { value: Corners; label: string }[] = [{ value: 'sharp', label: 'Sharp' }, { value: 'soft', label: 'Soft' }, { value: 'round', label: 'Round' }]
 
 const ACCENTS = [
   ['#7c9cff', 'Periwinkle'], ['#e8795f', 'Terracotta'], ['#e0b04c', 'Amber'], ['#4fb99a', 'Jade'],
@@ -27,14 +23,12 @@ const COVER_SIZES = [{ value: 'small', label: 'Small' }, { value: 'medium', labe
 const KINDS = [{ value: 'manga', label: 'Manga' }, { value: 'novel', label: 'Novels' }] as const
 const DIRECTIONS: readonly { value: Direction; label: string }[] = [{ value: 'ltr', label: 'Left to right' }, { value: 'rtl', label: 'Right to left' }]
 const MODES: readonly { value: ReaderProfile['mode']; label: string }[] = [
-  { value: 'auto', label: 'Auto' }, { value: 'paged', label: 'Paged' }, { value: 'scroll', label: 'Scroll' }, { value: 'reflow', label: 'Reflow' },
+  { value: 'auto', label: 'Auto' }, { value: 'paged', label: 'Paged' }, { value: 'scroll', label: 'Continuous' }, { value: 'reflow', label: 'Text' },
 ]
+const TEXT_LAYOUTS: readonly { value: ReflowLayout; label: string }[] = [{ value: 'paged', label: 'Pages' }, { value: 'scroll', label: 'Continuous' }]
 const SPREADS: readonly { value: Spreads; label: string }[] = [{ value: 'auto', label: 'Auto' }, { value: 'single', label: 'Single' }, { value: 'double', label: 'Double' }]
 const FITS: readonly { value: Fit; label: string }[] = [
   { value: 'contain', label: 'Page' }, { value: 'width', label: 'Width' }, { value: 'height', label: 'Height' }, { value: 'original', label: 'Original' },
-]
-const BACKGROUNDS: readonly { value: PageBackground; label: string }[] = [
-  { value: 'black', label: 'Black' }, { value: 'dark', label: 'Dark' }, { value: 'gray', label: 'Gray' }, { value: 'white', label: 'White' }, { value: 'sepia', label: 'Sepia' },
 ]
 const TAP_LAYOUTS: readonly { value: TapLayout; label: string }[] = [
   { value: 'sides', label: 'Sides' }, { value: 'kindle', label: 'Kindle' }, { value: 'edges', label: 'Edges' }, { value: 'off', label: 'Off' },
@@ -65,23 +59,35 @@ function Stacked({ label, children }: { label: string; children: ReactNode }) {
 
 function Appearance({ prefs, update }: { prefs: Preferences; update: (p: unknown) => void }) {
   const custom = !ACCENTS.some(([value]) => value === prefs.accent.toLowerCase())
+  const customTheme = prefs.theme === 'custom'
+  const usable = usableColors(prefs.customTheme.bg, prefs.customTheme.fg)
+  const tile = (value: Theme, label: string, background: string, color: string) => (
+    <button key={value} type="button" role="radio" aria-checked={prefs.theme === value} aria-label={label} className="theme-tile" onClick={() => update({ theme: value })}>
+      <span style={{ background, color }}>Aa</span>
+      {label}
+    </button>
+  )
   return (
     <Section title="Appearance">
       <Stacked label="Theme">
         <div className="theme-grid" role="radiogroup" aria-label="Theme">
-          {THEMES.map((t) => (
-            <button key={t.value} type="button" role="radio" aria-checked={prefs.theme === t.value} className="theme-tile" onClick={() => update({ theme: t.value })}>
-              <span style={{ background: t.bg, color: t.fg }}>Aa</span>
-              {t.label}
-            </button>
-          ))}
+          {tile('system', 'System', 'linear-gradient(135deg, #f6f6f7 50%, #0b0c0e 50%)', 'transparent')}
+          {THEMES.map((t) => tile(t.value, t.label, t.bg, t.fg))}
+          {tile('custom', 'Custom', usable.bg, usable.fg)}
         </div>
+        {customTheme && (
+          <div className="color-fields">
+            <ColorField label="Background" value={usable.bg} onChange={(bg) => update({ customTheme: { bg } })} />
+            <ColorField label="Text" value={prefs.customTheme.fg} onChange={(fg) => update({ customTheme: { fg } })} />
+          </div>
+        )}
+        {customTheme && usable.adjusted && <p className="hint" role="status">That text color would be unreadable, so the app is using a clearer one.</p>}
       </Stacked>
       <Stacked label="Accent">
         <div className="swatches" role="radiogroup" aria-label="Accent colour">
           {ACCENTS.map(([value, label]) => (
             <button key={value} type="button" role="radio" aria-checked={prefs.accent.toLowerCase() === value} aria-label={label} style={{ background: value }} onClick={() => update({ accent: value })}>
-              {prefs.accent.toLowerCase() === value && <Check size={16} strokeWidth={3} color="#0b0c0e" />}
+              {prefs.accent.toLowerCase() === value && <Check size={16} strokeWidth={3} color="var(--on-accent)" />}
             </button>
           ))}
           <label className="swatch-custom" data-on={custom} style={custom ? { background: prefs.accent } : undefined}>
@@ -89,6 +95,9 @@ function Appearance({ prefs, update }: { prefs: Preferences; update: (p: unknown
             <input type="color" value={prefs.accent} onChange={(e) => update({ accent: e.target.value })} />
           </label>
         </div>
+      </Stacked>
+      <Stacked label="Corners">
+        <Segmented label="Corners" value={prefs.corners} options={CORNERS} onChange={(corners) => update({ corners })} />
       </Stacked>
       <Stacked label="Cover size">
         <Segmented label="Cover size" value={prefs.coverSize} options={COVER_SIZES} onChange={(coverSize) => update({ coverSize })} />
@@ -112,9 +121,12 @@ function ReadingDefaults({ prefs, update }: { prefs: Preferences; update: (p: un
       <Segmented label="Defaults for" value={kind} options={KINDS} onChange={setKind} />
       <Stacked label="Direction"><Segmented label="Direction" value={profile.direction} options={DIRECTIONS} onChange={(direction) => set({ direction })} /></Stacked>
       <Stacked label="Default mode"><Segmented label="Default mode" value={profile.mode} options={MODES} onChange={(mode) => set({ mode })} /></Stacked>
+      <Stacked label="Text flow"><Segmented label="Text flow" value={profile.reflow.layout} options={TEXT_LAYOUTS} onChange={(layout) => update({ profiles: { [kind]: { reflow: { layout } } } })} /></Stacked>
       <Stacked label="Spreads"><Segmented label="Spreads" value={profile.spreads} options={SPREADS} onChange={(spreads) => set({ spreads })} /></Stacked>
       <Stacked label="Fit"><Segmented label="Fit" value={profile.fit} options={FITS} onChange={(fit) => set({ fit })} /></Stacked>
-      <Stacked label="Background"><Segmented label="Background" value={profile.background} options={BACKGROUNDS} onChange={(background) => set({ background })} /></Stacked>
+      <Stacked label="Reading colors">
+        <ColorwayPicker value={profile.background} custom={profile.customColors} showText onChange={(patch) => update({ profiles: { [kind]: patch } })} />
+      </Stacked>
       <Stacked label="Tap zones"><Segmented label="Tap zones" value={profile.tapLayout} options={TAP_LAYOUTS} onChange={(tapLayout) => set({ tapLayout })} /></Stacked>
       <p className="hint">Every book can still override these from inside the reader.</p>
     </Section>

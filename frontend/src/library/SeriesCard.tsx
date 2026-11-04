@@ -1,5 +1,6 @@
+import { MoreHorizontal } from 'lucide-react'
 import { useCallback, type MouseEvent } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import type { Doc } from '../api/types'
 import { Cover } from './Cover'
 import { SelectMark } from './BookCard'
@@ -14,9 +15,9 @@ export function SeriesCard({ name, docs }: { name: string; docs: Doc[] }) {
   const selected = useLibraryUi((s) => s.selected)
   const toggleSelected = useLibraryUi((s) => s.toggleSelected)
   const startSelecting = useLibraryUi((s) => s.startSelecting)
-  const navigate = useNavigate()
+  const openSeries = useLibraryUi((s) => s.openSeries)
   const ids = docs.map((d) => d.id)
-  const open = useCallback(() => navigate(seriesPath(name)), [navigate, name])
+  const open = useCallback(() => openSeries(name), [openSeries, name])
   const { consumeLongPress, ...pressHandlers } = useCardPress(open)
 
   const selecting = selected !== null
@@ -49,6 +50,11 @@ export function SeriesCard({ name, docs }: { name: string; docs: Doc[] }) {
         <span className="card-title">{name}</span>
         <span className="card-sub">{sub}</span>
       </Link>
+      {!selecting && (
+        <button type="button" className="card-menu" tabIndex={-1} onClick={open} aria-label={`More for ${name}`}>
+          <MoreHorizontal size={18} />
+        </button>
+      )}
     </div>
   )
 }

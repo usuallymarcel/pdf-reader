@@ -1,5 +1,6 @@
 import { Suspense, lazy, useRef } from 'react'
-import { Splash, useGateScreen } from './SessionGate'
+import { Boot } from '../ui/primitives'
+import { useGateScreen } from './SessionGate'
 
 const ReaderPage = lazy(() => import('../reader/ReaderPage'))
 
@@ -12,5 +13,5 @@ export function ReaderRoute() {
   const admitted = useRef(false)
   if (!screen) admitted.current = true
   if (!admitted.current) return screen
-  return <Suspense fallback={<Splash />}><ReaderPage /></Suspense>
+  return <Suspense fallback={<Boot label="Opening book" />}><ReaderPage /></Suspense>
 }

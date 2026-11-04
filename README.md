@@ -14,6 +14,12 @@ docker compose up -d --build
 Open `http://YOUR-SERVER-IP:8080`, or `https://reader.marcel.co.nz` through Traefik. No `.env` is
 needed. `docker compose down` keeps your data. `docker compose down -v` deletes the library.
 
+## Organising
+
+- **Series**: one per book, with a volume number that sets the order. Long-press, right-click or use the `...` menu on a series to rename it, merge it into another (this is how two misspellings become one), edit its author and type, or ungroup it. Renaming onto an existing series merges them. Moves have Undo.
+- **Collections**: your own shelves, per user. A book can be in any number of them. They appear as filter chips in the library.
+- **Move many at once**: Select in the library, then Move to series, Collections or More actions.
+
 ## Configuration
 
 | Variable | Default | Meaning |
@@ -55,6 +61,8 @@ Everything is in the `pdf_reader_data` volume, mounted at `/data`:
 | `derived/<id>/` | Covers and reflow text, rebuilt by reprocessing |
 | `tmp/` | Uploads in progress, cleared at boot |
 | `reader.sqlite3.migrated` | The old app's database, after its one-time import |
+
+Upgrading is automatic: migrations run at container start. When text extraction improves, books already in the library are re-read in the background, one at a time, and stay readable throughout. A book that fails keeps its old text and is tried again after the next restart.
 
 ## Backup
 

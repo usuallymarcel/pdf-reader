@@ -1,10 +1,11 @@
 import { useEffect, useRef } from 'react'
 import {
-  ArrowLeft, Bookmark as BookmarkIcon, BookOpen, List, Maximize, Minimize, Rows3, Search, Settings2, Type,
+  AlignJustify, ArrowLeft, Bookmark as BookmarkIcon, BookOpen, List, Maximize, Minimize, Rows3, Search, Settings2, Type,
 } from 'lucide-react'
-import type { Bookmark, DocDetail, ReaderMode } from '../../api/types'
+import type { Bookmark, DocDetail } from '../../api/types'
 import type { ProgressIndicator } from '../../settings/schema'
 import { fullscreenAvailable, toggleFullscreen, useIsFullscreen } from '../hooks/device'
+import type { ReaderView } from '../look'
 import type { PageRenderer } from '../pdf/renderer'
 import { useReaderUi, type Panel } from '../store'
 import { Scrubber } from './Scrubber'
@@ -39,29 +40,29 @@ export function TopBar({ doc, bookmarks, onBack, onBookmark, onPanel }: {
   )
 }
 
-const MODE_ICON = { paged: BookOpen, scroll: Rows3, reflow: Type } as const
-const MODE_LABEL = { paged: 'Paged', scroll: 'Continuous', reflow: 'Text' } as const
+const VIEW_ICON = { paged: BookOpen, scroll: Rows3, 'text-paged': Type, 'text-scroll': AlignJustify } as const
+const VIEW_LABEL = { paged: 'Paged', scroll: 'Continuous', 'text-paged': 'Text', 'text-scroll': 'Text, continuous' } as const
 
-export function BottomBar({ doc, renderer, rtl, mode, onSeek, onCycleMode }: {
+export function BottomBar({ doc, renderer, rtl, view, onSeek, onCycleMode }: {
   doc: DocDetail
   renderer: PageRenderer | null
   rtl: boolean
-  mode: ReaderMode
+  view: ReaderView
   onSeek: (page: number) => void
   onCycleMode: () => void
 }) {
   const open = useReaderUi((s) => s.chrome)
   const page = useReaderUi((s) => s.position.page)
   const fullscreen = useIsFullscreen()
-  const ModeIcon = MODE_ICON[mode]
+  const ModeIcon = VIEW_ICON[view]
   return (
     <footer className="reader-bar reader-bottom" data-open={open} inert={!open}>
       <Scrubber total={doc.page_count} rtl={rtl} renderer={renderer} onSeek={onSeek} />
       <div className="reader-bottom-row">
         <output className="reader-pages" aria-live="off">{page} / {doc.page_count}</output>
         <span className="reader-spacer" />
-        <button type="button" className="reader-mode" aria-label={`Reading mode: ${MODE_LABEL[mode]}. Change`} onClick={onCycleMode}>
-          <ModeIcon size={18} />{MODE_LABEL[mode]}
+        <button type="button" className="reader-mode" aria-label={`Reading mode: ${VIEW_LABEL[view]}. Change`} onClick={onCycleMode}>
+          <ModeIcon size={18} />{VIEW_LABEL[view]}
         </button>
         {fullscreenAvailable() && (
           <button type="button" className="icon-btn" aria-label={fullscreen ? 'Exit fullscreen' : 'Fullscreen'} onClick={toggleFullscreen}>

@@ -51,7 +51,7 @@ export function BookCard({ doc, showSeries = true }: { doc: Doc; showSeries?: bo
       <Link to={`/read/${doc.id}`} viewTransition data-card-link draggable={false} onClick={onClick} className="card-link" aria-label={`${doc.title}${doc.status === 'ready' ? '' : `, ${doc.status}`}`}>
         <span className="cover">
           <Cover doc={doc} />
-          {doc.status === 'processing' && <span className="cover-shimmer" />}
+          {doc.status === 'processing' && <span className="cover-processing" />}
           {doc.status === 'failed' && <span className="cover-failed"><AlertTriangle size={22} aria-hidden="true" /></span>}
           {doc.state.finished && <span className="cover-check"><Check size={13} strokeWidth={3} /></span>}
           {!doc.state.finished && progress > 0.005 && <span className="cover-progress"><span style={{ transform: `scaleX(${progress})` }} /></span>}

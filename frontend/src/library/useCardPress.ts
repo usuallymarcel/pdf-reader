@@ -3,6 +3,23 @@ import { haptic } from '../app/haptics'
 
 const LONG_PRESS_MS = 420
 const MOVE_TOLERANCE_PX = 10
+const RELEASE_GRACE_MS = 400
+
+/**
+ * The sheet a long-press opens appears under the finger, so lifting it must not count as a tap on
+ * whatever landed there, which could be Delete. Swallows the click that ends the press.
+ */
+function swallowReleaseClick() {
+  const swallow = (e: Event) => { e.preventDefault(); e.stopPropagation() }
+  window.addEventListener('click', swallow, { capture: true, once: true })
+  const lifted = () => {
+    window.removeEventListener('pointerup', lifted)
+    window.removeEventListener('pointercancel', lifted)
+    window.setTimeout(() => window.removeEventListener('click', swallow, { capture: true }), RELEASE_GRACE_MS)
+  }
+  window.addEventListener('pointerup', lifted)
+  window.addEventListener('pointercancel', lifted)
+}
 
 /** Long-press on touch, right-click and the Menu key elsewhere, all ending in `onMenu`. */
 export function useCardPress(onMenu: () => void) {
@@ -19,6 +36,7 @@ export function useCardPress(onMenu: () => void) {
         start.current = { x: e.clientX, y: e.clientY }
         timer.current = window.setTimeout(() => {
           fired.current = true
+          swallowReleaseClick()
           haptic()
           onMenu()
         }, LONG_PRESS_MS)

@@ -2,7 +2,7 @@
 from datetime import datetime, timezone
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, PlainSerializer
+from pydantic import BaseModel, ConfigDict, Field, PlainSerializer, StringConstraints
 
 Timestamp = Annotated[
     datetime,
@@ -11,6 +11,8 @@ Timestamp = Annotated[
 Kind = Literal['manga', 'novel']
 Direction = Literal['ltr', 'rtl']
 ShortText = Annotated[str, Field(min_length=1, max_length=500)]
+Name = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
+DocIds = Annotated[list[str], Field(max_length=5000)]
 
 
 class User(BaseModel):
@@ -71,6 +73,7 @@ class Doc(BaseModel):
     created_at: Timestamp
     updated_at: Timestamp
     state: ReadingStateOut
+    collections: list[int]
 
 
 class OutlineItem(BaseModel):
@@ -106,6 +109,35 @@ class DocPatch(BaseModel):
     kind: Kind = None
     direction: Direction | None = None
     shared: bool = None
+
+
+class BulkChanges(BaseModel):
+    """What a group of books can sensibly share. Unset fields stay as they are."""
+
+    series: ShortText | None = None
+    author: ShortText | None = None
+    kind: Kind = None
+
+
+class BulkPatch(BaseModel):
+    ids: Annotated[list[str], Field(min_length=1, max_length=5000)]
+    changes: BulkChanges
+
+
+class CollectionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+
+
+class CollectionWrite(BaseModel):
+    name: Name
+
+
+class CollectionItems(BaseModel):
+    add: DocIds = []
+    remove: DocIds = []
 
 
 class UploadResult(BaseModel):

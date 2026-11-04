@@ -1,3 +1,4 @@
+import { resolveColors } from '../../settings/colorways'
 import type { ReaderProfile } from '../../settings/schema'
 import { GestureRecognizer } from '../input/gestures'
 import { reducedMotion } from '../input/spring'
@@ -33,6 +34,9 @@ export class ReflowScroll implements ReflowStageApi {
   private destroyed = false
   private colWidth = 0
   private wasAtEnd = false
+  private lastPage = 0
+  /** A jump moved the scroll position, as opposed to the reader scrolling. */
+  private jumped = false
 
   constructor(
     private root: HTMLElement,
@@ -85,7 +89,7 @@ export class ReflowScroll implements ReflowStageApi {
 
   private layout(anchor: Anchor, force = false) {
     const p = this.profile
-    applyTypography(this.root, p.reflow, p.background, this.book.lang)
+    applyTypography(this.root, p.reflow, resolveColors(p), this.book.lang)
     const vw = this.root.clientWidth
     const col = reflowMetrics(vw, this.root.clientHeight, { ...p.reflow, columns: 1 }).col
     const key = `${typographyKey(p.reflow)}|${col}`
@@ -136,7 +140,11 @@ export class ReflowScroll implements ReflowStageApi {
       const h = this.mounted.get(i)?.el.offsetHeight
       if (h) this.heights[i] = h
     }
-    if (refEl && refTop !== undefined) this.root.scrollTop += refEl.getBoundingClientRect().top - refTop
+    if (refEl && refTop !== undefined) {
+      // Writing scrollTop stops a smooth scroll, so leave it alone unless something really moved.
+      const shift = refEl.getBoundingClientRect().top - refTop
+      if (Math.abs(shift) >= 1) this.root.scrollTop += shift
+    }
     planSlots(this.env.renderer, [...this.mounted.values()].flatMap((m) => m.slots))
   }
 
@@ -148,6 +156,7 @@ export class ReflowScroll implements ReflowStageApi {
     const rect = block && charRect(block, a.char)
     if (rect) this.root.scrollTop += rect.top - this.root.getBoundingClientRect().top - 24
     this.cachedAnchor = a
+    this.jumped = true
   }
 
   private currentSection(): number {
@@ -186,12 +195,18 @@ export class ReflowScroll implements ReflowStageApi {
   private emit() {
     if (this.destroyed) return
     this.cachedAnchor = this.locate()
-    this.env.onPosition(anchorToPosition(this.book.index, this.cachedAnchor), anchorFraction(this.book.index, this.cachedAnchor))
+    const pos = anchorToPosition(this.book.index, this.cachedAnchor)
+    if (pos.page !== this.lastPage && !this.jumped) this.env.onFlip() // scrolling on puts the bars away
+    this.lastPage = pos.page
+    this.jumped = false
+    this.env.onPosition(pos, anchorFraction(this.book.index, this.cachedAnchor))
   }
 
   private locate(): Anchor {
     const top = this.root.getBoundingClientRect().top + 2
-    for (const m of this.mounted.values()) {
+    // In document order: after scrolling back up the map's insertion order is not.
+    const sections = [...this.mounted.entries()].sort((a, b) => a[0] - b[0])
+    for (const [, m] of sections) {
       const r = m.el.getBoundingClientRect()
       if (r.bottom <= top) continue
       const blocks = m.el.children
@@ -243,7 +258,7 @@ export class ReflowScroll implements ReflowStageApi {
     const a = this.cachedAnchor
     this.profile = profile
     this.layout(a)
-    applyTypography(this.root, profile.reflow, profile.background, this.book.lang)
+    applyTypography(this.root, profile.reflow, resolveColors(profile), this.book.lang)
     if (fontChanged) void this.ensureFont()
   }
 
