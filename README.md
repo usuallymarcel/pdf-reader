@@ -1,38 +1,91 @@
-# PDF Reader
+# Shelf
 
-A small single-user PDF library. PDFs and the SQLite database live in the persistent
-Docker volume `pdf_reader_data`. Reading position is saved per PDF and restored when
-you open that PDF again.
+Self-hosted PDF reader for manga and light novels: library, series, paged, scroll and reflow
+reading, search, bookmarks, offline use. A FastAPI backend serves a React frontend from one
+container, with nothing loaded from a CDN.
 
-## Start
+## Run
 
 ```sh
+docker network create proxy   # first time only, on a machine without Traefik
 docker compose up -d --build
 ```
 
-Open `http://YOUR-SERVER-IP:8080`.
-
-## Stop / remove
-
-Stop the container but keep your books and reading positions:
-
-```sh
-docker compose down
-```
-
-Start again:
-
-```sh
-docker compose up -d
-```
-
-**Important:** `docker compose down -v` deletes the persistent volume and all uploaded
-PDFs plus the database. Do not use `-v` unless you intend to wipe the library.
+Open `http://YOUR-SERVER-IP:8080`, or `https://reader.marcel.co.nz` through Traefik. No `.env` is
+needed. `docker compose down` keeps your data. `docker compose down -v` deletes the library.
 
 ## Configuration
 
-- Change the host port in `docker-compose.yml` (`8080:8000`).
-- `MAX_UPLOAD_MB` defaults to 500.
-- PDF.js is loaded from cdnjs, so the browser needs internet access to load the viewer library.
-- This is intentionally a single-user app with no login. Do not expose it publicly without
-  adding authentication or putting it behind an access-controlled network/proxy.
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `USERS_API_URL` | `http://users-api:8000` | Login backend. Empty disables login. |
+| `AUTH_FAIL_MODE` | `global` | `global` or `closed`: what happens while users-api is down. |
+| `ALLOW_SIGNUP` | `true` | Allow new accounts. |
+| `MAX_UPLOAD_MB` | `500` | Upload limit. |
+| `DATA_DIR` | `/data` | Data location. |
+| `FRONTEND_DIST` | `/app/frontend/dist` | Built frontend. |
+| `CSRF_TRUSTED_ORIGINS` | empty | Extra allowed origins, comma separated. For the Vite dev server. |
+
+## Auth
+
+The browser only talks to the reader, which keeps its own `reader_session` cookie and validates it
+against users-api. Health is cached for 15s, and tokens for 60s.
+
+| users-api | Visitor | Result |
+| --- | --- | --- |
+| not configured, unreachable, 5xx, or missing capabilities | anyone | global: all documents visible, shared state |
+| healthy | no or bad session | login required |
+| healthy | valid session | own and shared documents, per-user state |
+
+**During an outage**, with the default `AUTH_FAIL_MODE=global`, everyone can see and edit **every**
+document, private ones included, with no login. Set `AUTH_FAIL_MODE=closed` to answer 503 on data
+endpoints instead. Requests never wait more than about 2s on a hung users-api: the last known state
+is served while a refresh runs in the background. Normal scoped mode returns by itself on recovery.
+
+Login and signup are limited to 10 attempts a minute per IP and per username, in process.
+
+## Data
+
+Everything is in the `pdf_reader_data` volume, mounted at `/data`:
+
+| Path | Contents |
+| --- | --- |
+| `library.sqlite3` | Database (WAL mode, with `-wal` and `-shm` files) |
+| `pdfs/` | Uploaded files |
+| `derived/<id>/` | Covers and reflow text, rebuilt by reprocessing |
+| `tmp/` | Uploads in progress, cleared at boot |
+| `reader.sqlite3.migrated` | The old app's database, after its one-time import |
+
+## Backup
+
+Stop the container so the database is consistent, then archive the volume:
+
+```sh
+docker compose stop
+docker run --rm -v pdf-reader_pdf_reader_data:/data -v "$PWD":/backup alpine tar czf /backup/shelf.tgz -C /data .
+docker compose start
+```
+
+The volume name is prefixed with the compose project, so check it with `docker volume ls`.
+
+## Development
+
+Backend, on Python 3.12:
+
+```sh
+cd backend
+python -m venv ~/.venvs/shelf
+~/.venvs/shelf/bin/pip install -r requirements-dev.txt
+~/.venvs/shelf/bin/pytest
+DATA_DIR=./.data ~/.venvs/shelf/bin/alembic upgrade head
+DATA_DIR=./.data USERS_API_URL= CSRF_TRUSTED_ORIGINS=http://localhost:5173 FRONTEND_DIST=../frontend/dist \
+  ~/.venvs/shelf/bin/uvicorn app.main:create_app --factory --reload
+```
+
+Frontend, proxying `/api` to port 8000:
+
+```sh
+cd frontend
+npm ci
+npm run dev
+```

@@ -8,9 +8,18 @@ services:
       - "8080:8000"
     environment:
       DATA_DIR: /data
-      MAX_UPLOAD_MB: "500"
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-500}
+      USERS_API_URL: ${USERS_API_URL:-http://users-api:8000}
+      ALLOW_SIGNUP: ${ALLOW_SIGNUP:-true}
+      AUTH_FAIL_MODE: ${AUTH_FAIL_MODE:-global}
     volumes:
       - pdf_reader_data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/api/healthz', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     labels:
       - "traefik.enable=true"
 

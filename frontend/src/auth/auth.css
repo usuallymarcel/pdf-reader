@@ -1,0 +1,11 @@
+.login {
+  min-height: 100dvh; display: grid; place-items: center;
+  padding: calc(var(--safe-top) + 24px) calc(20px + var(--safe-right)) calc(var(--safe-bottom) + 24px) calc(20px + var(--safe-left));
+}
+.login-card { width: min(100%, 340px); display: flex; flex-direction: column; gap: 14px; }
+.login-mark { border-radius: 13px; margin-bottom: 6px; }
+.login h1 { margin: 0; font-size: 30px; line-height: 1.1; font-weight: 690; letter-spacing: -.024em; }
+.login-lead { margin: -8px 0 10px; color: var(--fg-muted); }
+.login .btn-primary { margin-top: 6px; min-height: 48px; }
+.login-switch { min-height: var(--tap); color: var(--fg-muted); font-size: 14px; }
+@media (hover: hover) { .login-switch:hover { color: var(--fg); } }
