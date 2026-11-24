@@ -10,8 +10,8 @@ services:
       DATA_DIR: /data
       MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-500}
       USERS_API_URL: ${USERS_API_URL:-http://users-api:8000}
-      ALLOW_SIGNUP: ${ALLOW_SIGNUP:-true}
-      AUTH_FAIL_MODE: ${AUTH_FAIL_MODE:-global}
+      ALLOW_SIGNUP: ${ALLOW_SIGNUP:-false}
+      AUTH_FAIL_MODE: ${AUTH_FAIL_MODE:-closed}
     volumes:
       - pdf_reader_data:/data
     healthcheck:
